@@ -1,0 +1,330 @@
+## Copyright © 2020, Oracle and/or its affiliates.
+## All rights reserved. The Universal Permissive License (UPL), Version 1.0 as shown at http://oss.oracle.com/licenses/upl
+
+title: "Deploy OCI AI Data Platform Lab (ATP + AI Lakehouse + AIDP + OAC + Gradio console)"
+stackDescription: "One-click lab for OCI AI Data Platform: creates ATP (OLTP), Autonomous AI Lakehouse, AIDP Workbench, OAC, and a Compute instance running a Gradio setup console that automates the parts Terraform cannot."
+schemaVersion: 1.1.0
+version: "20251201"
+locale: "en"
+
+variableGroups:
+  - title: Required Configuration
+    visible: true
+    variables:
+      - region
+      - compartment_ocid
+      - availability_domain
+      - vcn_id
+
+  - title: ATP (OLTP source)
+    visible: true
+    variables:
+      - atp_name
+      - atp_display_name
+      - atp_password
+      - atp_compute_count
+      - atp_data_storage_size_in_tbs
+      - license_model
+
+  - title: Autonomous AI Lakehouse
+    visible: true
+    variables:
+      - lakehouse_name
+      - lakehouse_display_name
+      - lakehouse_password
+      - lakehouse_compute_count
+      - lakehouse_data_storage_size_in_tbs
+
+  - title: AI Data Platform
+    visible: true
+    variables:
+      - aidp_display_name
+      - aidp_workspace_name
+
+  - title: Oracle Analytics Cloud
+    visible: true
+    variables:
+      - oac_name
+      - oac_idcs_access_token
+      - oac_capacity_users
+
+  - title: Object Storage (pre-created)
+    visible: true
+    variables:
+      - bucket_name
+
+  - title: Compute (Gradio console)
+    visible: true
+    variables:
+      - instance_display_name
+      - instance_image_source_id
+      - instance_shape
+      - instance_flex_shape_ocpus
+      - instance_flex_shape_memory
+      - instance_boot_volume_size
+      - instance_boot_volume_vpus
+      - subnet_id
+      - ssh_authorized_keys
+      - application_port
+      - application_git_tag
+      - github_deploy_key_url
+      - app_admin_password
+
+variables:
+  region:
+    title: Region
+    type: oci:identity:region:name
+    required: true
+    visible: false
+
+  compartment_ocid:
+    type: oci:identity:compartment:id
+    required: true
+    visible: true
+    title: "Create in compartment"
+
+  availability_domain:
+    type: oci:identity:availabilitydomain:name
+    required: true
+    visible: true
+    title: "Availability domain"
+    dependsOn:
+      region: ${region}
+      compartmentId: ${compartment_ocid}
+
+  vcn_id:
+    type: oci:core:vcn:id
+    required: true
+    visible: true
+    title: "VCN"
+    description: "Select the existing virtual cloud network that contains the Compute subnet."
+    dependsOn:
+      compartmentId: ${compartment_ocid}
+
+  atp_name:
+    type: string
+    required: true
+    visible: true
+    title: "ATP database name"
+    default: "AIRLINESOURCE01"
+
+  atp_display_name:
+    type: string
+    required: true
+    visible: true
+    title: "ATP display name"
+    default: "airline-source-atp"
+
+  atp_password:
+    type: password
+    required: true
+    visible: true
+    title: "ATP admin password"
+    description: "Password for the ATP ADMIN user (12-30 chars, upper/lower case + digit, no quotes)."
+    confirmation: true
+    pattern: "^(?!.*admin)(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?!.*[\"]).{12,30}$"
+
+  atp_compute_count:
+    type: number
+    required: true
+    visible: true
+    title: "ATP ECPU count"
+    default: 20
+
+  atp_data_storage_size_in_tbs:
+    type: number
+    required: true
+    visible: true
+    title: "ATP storage (TB)"
+    default: 0.05
+
+  license_model:
+    type: enum
+    required: true
+    visible: true
+    title: "ADB license"
+    enum:
+      - "LICENSE_INCLUDED"
+      - "BRING_YOUR_OWN_LICENSE"
+    default: "LICENSE_INCLUDED"
+
+  lakehouse_name:
+    type: string
+    required: true
+    visible: true
+    title: "AI Lakehouse database name"
+    default: "AIDPDB01"
+
+  lakehouse_display_name:
+    type: string
+    required: true
+    visible: true
+    title: "AI Lakehouse display name"
+    default: "aidp-db"
+
+  lakehouse_password:
+    type: password
+    required: true
+    visible: true
+    title: "AI Lakehouse admin password"
+    description: "Password for the Lakehouse ADMIN user (12-30 chars, upper/lower case + digit, no quotes)."
+    confirmation: true
+    pattern: "^(?!.*admin)(?=.*[0-9])(?=.*[a-z])(?=.*[A-Z])(?!.*[\"]).{12,30}$"
+
+  lakehouse_compute_count:
+    type: number
+    required: true
+    visible: true
+    title: "AI Lakehouse ECPU count"
+    default: 8
+
+  lakehouse_data_storage_size_in_tbs:
+    type: number
+    required: true
+    visible: true
+    title: "AI Lakehouse storage (TB)"
+    default: 0.05
+
+  aidp_display_name:
+    type: string
+    required: true
+    visible: true
+    title: "AIDP instance display name"
+    default: "aidp-test"
+
+  aidp_workspace_name:
+    type: string
+    required: true
+    visible: true
+    title: "AIDP default workspace name"
+    default: "aidp-workspace"
+
+  oac_name:
+    type: string
+    required: true
+    visible: true
+    title: "OAC instance name"
+    description: "Must be unique in the tenancy. Cannot be changed after creation."
+    default: "aidpoac01"
+
+  oac_idcs_access_token:
+    type: password
+    required: true
+    visible: true
+    title: "OAC IDCS access token"
+    description: "Generate under Identity and Security > Identity Domains > default > Users > (your user) > Access Tokens, then paste it here. Required to create the OAC instance via Terraform."
+
+  oac_capacity_users:
+    type: number
+    required: true
+    visible: true
+    title: "OAC user capacity"
+    default: 2
+
+  bucket_name:
+    type: string
+    required: true
+    visible: true
+    title: "Object Storage bucket name (pre-created)"
+    description: "Existing bucket that AIDP will use for Delta data (delta/ prefix). Create it manually beforehand."
+    default: "aidp-demo-bucket_01"
+
+  instance_display_name:
+    type: string
+    required: true
+    visible: true
+    title: "Compute instance name"
+    default: "aidp-lab-instance"
+
+  instance_image_source_id:
+    type: oci:core:image:id
+    required: true
+    visible: true
+    title: "Compute OS image"
+    default: "ocid1.image.oc1.ap-osaka-1.aaaaaaaa7sbmd5q54w466eojxqwqfvvp554awzjpt2behuwsiefrxnwomq5a"
+    dependsOn:
+      compartmentId: ${compartment_ocid}
+
+  instance_shape:
+    type: enum
+    required: true
+    visible: true
+    title: "Compute shape"
+    enum:
+      - "VM.Standard.E4.Flex"
+      - "VM.Standard.E5.Flex"
+    default: "VM.Standard.E4.Flex"
+
+  instance_flex_shape_ocpus:
+    type: number
+    required: true
+    visible: true
+    title: "Compute OCPUs"
+    default: 2
+
+  instance_flex_shape_memory:
+    type: number
+    required: true
+    visible: true
+    title: "Compute memory (GB)"
+    default: 16
+
+  instance_boot_volume_size:
+    type: number
+    required: true
+    visible: true
+    title: "Boot volume size (GB)"
+    default: 100
+
+  instance_boot_volume_vpus:
+    type: number
+    required: true
+    visible: true
+    title: "Boot volume VPUs per GB"
+    default: 10
+
+  subnet_id:
+    type: oci:core:subnet:id
+    required: true
+    visible: true
+    title: "Compute subnet"
+    description: "Pick a public subnet if you want to reach the Gradio console from the internet."
+    dependsOn:
+      vcnId: ${vcn_id}
+      compartmentId: ${compartment_ocid}
+
+  ssh_authorized_keys:
+    type: string
+    required: true
+    visible: true
+    title: "SSH authorized keys"
+    description: "Paste your SSH public key."
+
+  application_port:
+    type: number
+    required: true
+    visible: true
+    title: "Gradio application port"
+    default: 8080
+
+  application_git_tag:
+    type: string
+    required: true
+    visible: true
+    title: "Application Git ref"
+    default: "main"
+
+  github_deploy_key_url:
+    type: string
+    required: true
+    visible: true
+    title: "GitHub deploy key PAR URL"
+    description: "Object Storage pre-authenticated request URL of this repository's GitHub deploy key (private key)."
+
+  app_admin_password:
+    type: password
+    required: true
+    visible: true
+    title: "Gradio console admin password"
+    description: "Web UI password for the ADMIN login of the Gradio console."
+    confirmation: true

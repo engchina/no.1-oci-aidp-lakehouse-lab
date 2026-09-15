@@ -1,0 +1,399 @@
+"""CSSユーティリティモジュール.
+
+GradioアプリケーションのカスタムCSSスタイルを提供します。
+"""
+
+custom_css = """
+:root {
+  --global-font-family:
+    "Noto Sans JP",
+    "Roboto",
+    Arial,
+    sans-serif;
+    --primary-color: #196fb4;
+    --secondary-color: #f38141;
+    --color-accent: #2563eb;
+    --checkbox-background-color-selected: #2563eb;
+    --checkbox-border-color-selected: #2563eb;
+    --checkbox-border-color-focus: #2563eb;
+    --text-light: #fff;
+    --shadow-sm: 0 2px 5px -1px rgba(50, 50, 93, 0.25), 0 1px 3px -1px rgba(0, 0, 0, 0.3);
+    --object-selector-list-max-height: 392px;
+}
+
+/* ======= Base Styles ======= */
+html,
+body,
+div,
+table,
+tr,
+td,
+p,
+strong,
+button {
+  font-family: var(--global-font-family) !important;
+}
+
+input,
+textarea {
+  border-radius: 3px;
+}
+
+/* ======= Component Styles ======= */
+.input-label {
+    display: flex !important;
+    align-items: center;
+    height: 100%;
+    font-weight: bold;
+    font-size: 1rem;
+}
+
+.app {
+  background: #c4c4c440;
+}
+
+/* Header Styles */
+.main_Header > span > h1 {
+  color: var(--text-light);
+  text-align: center;
+  margin: 0 auto;
+  display: block;
+  overflow: hidden;
+}
+
+.sub_Header > span > h3,
+.sub_Header > span > h2,
+.sub_Header > span > h4 {
+  color: var(--text-light);
+  font-size: 0.8rem;
+  font-weight: 400;
+  text-align: center;
+  margin: 0 auto;
+  padding: 5px;
+}
+
+/* Tab Styles */
+.tabs {
+  background: var(--text-light);
+  border-radius: 3px 3px 3px 3px !important;
+  box-shadow: var(--shadow-sm);
+  gap: unset;
+}
+
+.tab-wrapper {
+  padding-bottom: 0;
+}
+
+.block.tab-intro {
+  margin-top: 10px;
+}
+
+.tab-container {
+  button[role="tab"] {
+    color: #606060;
+    font-weight: 500;
+    background: var(--text-light);
+    padding: 10px 20px;
+    border-top: 1px solid #e7e7ea;
+    border-right: 4px solid #485C69;
+    border-color: #485C69;
+    min-width: 120px;
+    text-align: center;
+
+    &.selected {
+      color: var(--text-light);
+      background: var(--primary-color);
+      border-bottom: none;
+    }
+    
+    &.selected:after {
+      height: 0;
+    }
+
+    &:last-child {
+      border-right: 4px solid #485C69;
+      border-top-right-radius: 3px;
+    }
+
+    &:first-child {
+      border-top-left-radius: 3px;
+    }
+  }
+}
+
+/* Table Styles */
+#event_tbl {
+  .table-wrap {
+    border-radius: 3px;
+  }
+
+  thead > tr > th {
+    background: #bfd1e0;
+    min-width: 90px;
+
+    &:first-child { border-radius: 3px 0 0 0; }
+    &:last-child { border-radius: 0 3px 0 0; }
+  }
+
+  .cell-wrap span {
+    font-size: 0.8rem;
+  }
+}
+
+/* Shared searchable object selector */
+.block.object-selector-search {
+  margin-bottom: 8px !important;
+}
+
+.block.object-selector-search input,
+.block.object-selector-search textarea {
+  min-height: 44px;
+}
+
+.block.object-selector-list {
+  width: 100%;
+}
+
+.block.object-selector-list .wrap,
+.block.object-selector-list fieldset,
+.block.object-selector-list [role="group"] {
+  max-height: var(--object-selector-list-max-height);
+  overflow-y: auto !important;
+  overflow-x: auto !important;
+  scrollbar-width: thin;
+}
+
+.block.object-selector-list label {
+  max-width: 100%;
+}
+
+.block.object-selector-list label span {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Shared operation feedback */
+.block.operation-status {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 12px !important;
+  border: 1px solid #bfd1e0;
+  border-left: 4px solid var(--primary-color);
+  border-radius: 3px;
+  background: #f3f8fc;
+}
+
+.block.operation-status .prose p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.block.operation-status--loading {
+  border-color: #bfd1e0;
+  border-left-color: var(--primary-color);
+  background: #f3f8fc;
+}
+
+.block.operation-status--success {
+  border-color: #a8d5ad;
+  border-left-color: #2e7d32;
+  background: #f2f8f3;
+  color: #235d27;
+}
+
+.block.operation-status--warning {
+  border-color: #f0cf75;
+  border-left-color: #c17b00;
+  background: #fff8e6;
+  color: #6f4b00;
+}
+
+.block.operation-status--error {
+  border-color: #f3aaa4;
+  border-left-color: #c43b31;
+  background: #fff3f2;
+  color: #8f1d18;
+}
+
+.vpd-status-table,
+.vpd-status-table .table-wrap,
+.vpd-inventory-table,
+.vpd-inventory-table .table-wrap {
+  border-radius: 3px;
+}
+
+.block.vpd-rule-help {
+  padding: 10px 12px !important;
+  border-left: 4px solid var(--primary-color);
+  background: #f3f8fc;
+}
+
+.vpd-form-row {
+  align-items: flex-start;
+}
+
+.vpd-access-mode [role="radiogroup"] {
+  flex-wrap: wrap;
+}
+
+.vpd-relation-row > .column {
+  min-width: 0;
+}
+
+.block.vpd-form-control,
+.vpd-dynamic-field {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.block.vpd-form-control {
+  border-radius: 3px;
+}
+
+.block.vpd-form-hint {
+  margin-top: 4px;
+  color: var(--body-text-color-subdued, #606060);
+  font-size: 0.875rem;
+}
+
+.block.vpd-form-hint .prose p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.block.vpd-danger-zone {
+  border: 1px solid #f0b7b2;
+  background: #fffafa;
+}
+
+.vpd-delete-action {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
+}
+
+@media (min-width: 769px) {
+  .vpd-status-table table.table {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: hidden !important;
+  }
+}
+
+@media (max-width: 768px) {
+  :root {
+    --object-selector-list-max-height: 280px;
+  }
+
+  .vpd-form-row {
+    gap: 8px;
+  }
+
+  .vpd-relation-row {
+    flex-direction: column;
+  }
+
+  .vpd-relation-row > .column {
+    width: 100%;
+  }
+
+  .block.vpd-form-hint {
+    margin-top: 4px;
+  }
+
+  .vpd-status-table .table-wrap,
+  .vpd-inventory-table .table-wrap {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .vpd-status-table table.table,
+  .vpd-inventory-table table.table {
+    min-width: 680px;
+  }
+}
+
+/* Button Styles */
+button.primary{
+    border: none;
+    background: linear-gradient(to right bottom, rgb(255, 198, 121), rgb(243, 129, 65));
+    color: rgb(255, 255, 255);
+    box-shadow: rgba(0, 0, 0, 0.12) 2px 2px 2px;
+    border-radius: 3px;
+}
+
+/* Form Elements */
+.container {
+  input:focus,
+  textarea:focus,
+  .wrap .wrap-inner:focus {
+    border-color: rgb(249 169 125 / 87%) !important;
+    border-radius: 3px;
+    box-shadow: 
+      rgb(255 246 228 / 63%) 0 0 0 3px,
+      rgb(255 248 236 / 12%) 0 2px 4px 0 inset !important;
+  }
+}
+
+input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    accent-color: var(--slider-color);
+    height: 4px;
+    background: var(--neutral-200);
+    border-radius: 5px;
+    background-image: var(--checkbox-border-color-selected);
+    background-size: 0% 100%;
+    background-repeat: no-repeat;
+}
+
+/* Responsive Styles */
+@media (min-width: 1280px) {
+  .app.gradio-container:not(.fill_width) {
+    max-width: 1400px;
+  }
+}
+
+/* Accessibility */
+footer { display: none !important; }
+.sort-button { display: none !important; }
+
+gradio-app {
+    background-image: url("https://objectstorage.ap-osaka-1.oraclecloud.com/n/idqcucnenh88/b/public-images/o/main_bg.png") !important;
+    background-size: 100vw 100vh !important;
+}
+/* Force vertical scrollbar for multi-line textboxes */
+textarea[rows]:not([rows="1"]) {
+  overflow-y: auto !important;
+  scrollbar-width: thin !important;
+}
+
+textarea[rows]:not([rows="1"])::-webkit-scrollbar {
+  all: initial !important;
+  background: #f1f1f1 !important;
+}
+
+textarea[rows]:not([rows="1"])::-webkit-scrollbar-thumb {
+  all: initial !important;
+  background: #a8a8a8 !important;
+}
+"""
+
+""" NOT USE
+/* SQL学習タブ用のインデックス・表示最適化 */
+#sql_learning_tables_sql textarea,
+#sql_learning_views_sql textarea,
+#sql_learning_insert_sql textarea {
+  font-family: "Roboto", monospace !important;
+  font-size: 0.8rem !important;
+  line-height: 1.3 !important;
+}
+
+/* DataFrame の行インデックスを目立たなくする */
+#query_result_df table thead th:first-child,
+#query_result_df table tbody td:first-child {
+  color: #999999 !important;
+  font-size: 0.7rem !important;
+}
+"""
