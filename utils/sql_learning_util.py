@@ -1,0 +1,543 @@
+"""SQL学習タブユーティリティ.
+
+初心者〜中級者向けに、Oracle SQLのSELECT中心の学習をステップバイステップで行えるUIを提供します。
+表・ビューの作成、初期データ投入、サブクエリ/CTE(WITH)/JOIN/WHERE/集約関数などの実行と結果表示を一つの画面で体験できます。
+
+Args:
+    pool: 遅延初期化されたOracle接続プール
+"""
+
+import logging
+from typing import List, Dict, Tuple
+
+import gradio as gr
+import pandas as pd
+
+from utils.query_util import execute_sql_general, execute_select_sql
+from utils.common_util import remove_comments
+from utils.gradio_util import admin_only_event as _admin_only_event
+from utils.metadata_cache_util import (
+    remove_table_cache_entry,
+    remove_view_cache_entry,
+    upsert_table_cache_entry,
+    upsert_view_cache_entry,
+)
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+_SAMPLE_TABLE_NAMES = ["DEPARTMENT", "EMPLOYEE", "PROJECT"]
+_SAMPLE_VIEW_NAMES = ["V_EMP_DEPT", "V_DEPT_PROJECT"]
+
+
+def _sql_learning_success(info_md) -> bool:
+    value = str(getattr(info_md, "value", "") or "")
+    return value.startswith("✅") and "失敗: 0件" in value
+
+
+def _invalidate_metadata_cache():
+    try:
+        from utils.management_util import invalidate_object_list_cache
+
+        invalidate_object_list_cache()
+    except Exception as e:
+        logger.error(f"_invalidate_metadata_cache error: {e}")
+
+
+def _upsert_sample_tables_cache():
+    for name in _SAMPLE_TABLE_NAMES:
+        upsert_table_cache_entry({"name": name, "rows": "", "comments": ""})
+    _invalidate_metadata_cache()
+
+
+def _upsert_sample_views_cache():
+    for name in _SAMPLE_VIEW_NAMES:
+        upsert_view_cache_entry({"name": name, "comments": ""})
+    _invalidate_metadata_cache()
+
+
+def _remove_sample_objects_cache(tables=None, views=None):
+    for name in views if views is not None else _SAMPLE_VIEW_NAMES:
+        remove_view_cache_entry(name)
+    for name in tables if tables is not None else _SAMPLE_TABLE_NAMES:
+        remove_table_cache_entry(name)
+    _invalidate_metadata_cache()
+
+
+def _schema_sql() -> Tuple[str, str]:
+    """学習用の表作成SQLとビュー作成用のSQLを返す.
+
+    Returns:
+        tuple[str, str]: (tables_sql, views_sql)
+    """
+    tables_sql = (
+"""
+-- 部門テーブル（日本の企業で分かりやすい業務ドメイン）
+CREATE TABLE DEPARTMENT (
+    DEPARTMENT_ID NUMBER PRIMARY KEY,
+    DEPARTMENT_NAME VARCHAR2(50) NOT NULL,
+    LOCATION VARCHAR2(50),
+    CREATED_AT DATE DEFAULT SYSDATE
+);
+
+-- 社員テーブル（社員は部門に所属）
+CREATE TABLE EMPLOYEE (
+    EMPLOYEE_ID NUMBER PRIMARY KEY,
+    DEPARTMENT_ID NUMBER NOT NULL,
+    EMPLOYEE_NAME VARCHAR2(100) NOT NULL,
+    EMAIL VARCHAR2(100),
+    HIRE_DATE DATE DEFAULT SYSDATE,
+    SALARY NUMBER(10,2),
+    CONSTRAINT FK_EMP_DEPT FOREIGN KEY (DEPARTMENT_ID)
+        REFERENCES DEPARTMENT(DEPARTMENT_ID)
+);
+
+-- プロジェクトテーブル（プロジェクトは部門が担当）
+CREATE TABLE PROJECT (
+    PROJECT_ID NUMBER PRIMARY KEY,
+    DEPARTMENT_ID NUMBER NOT NULL,
+    PROJECT_NAME VARCHAR2(100) NOT NULL,
+    START_DATE DATE,
+    BUDGET NUMBER(12,2),
+    CONSTRAINT FK_PROJ_DEPT FOREIGN KEY (DEPARTMENT_ID)
+        REFERENCES DEPARTMENT(DEPARTMENT_ID)
+);
+"""
+    ).strip()
+
+    views_sql = (
+"""
+-- 社員と部門のビュー
+CREATE OR REPLACE VIEW V_EMP_DEPT AS
+SELECT e.EMPLOYEE_ID, e.EMPLOYEE_NAME, e.SALARY,
+        d.DEPARTMENT_NAME, d.LOCATION
+    FROM EMPLOYEE e
+    JOIN DEPARTMENT d
+    ON e.DEPARTMENT_ID = d.DEPARTMENT_ID;
+
+-- 部門とプロジェクトのビュー
+CREATE OR REPLACE VIEW V_DEPT_PROJECT AS
+SELECT p.PROJECT_ID, p.PROJECT_NAME, p.BUDGET,
+        d.DEPARTMENT_NAME
+    FROM PROJECT p
+    JOIN DEPARTMENT d
+    ON p.DEPARTMENT_ID = d.DEPARTMENT_ID;
+"""
+    ).strip()
+
+    return tables_sql, views_sql
+
+
+def _insert_sql() -> Dict[str, str]:
+    """各テーブルの初期データ投入用INSERT SQLを返す.
+
+    Returns:
+        dict[str, str]: {table_name: inserts_sql}
+    """
+    dep_inserts = (
+"""
+INSERT INTO DEPARTMENT (DEPARTMENT_ID, DEPARTMENT_NAME, LOCATION) VALUES (10, '総務', '東京');
+INSERT INTO DEPARTMENT (DEPARTMENT_ID, DEPARTMENT_NAME, LOCATION) VALUES (20, '経理', '東京');
+INSERT INTO DEPARTMENT (DEPARTMENT_ID, DEPARTMENT_NAME, LOCATION) VALUES (30, '人事', '大阪');
+INSERT INTO DEPARTMENT (DEPARTMENT_ID, DEPARTMENT_NAME, LOCATION) VALUES (40, '営業', '名古屋');
+INSERT INTO DEPARTMENT (DEPARTMENT_ID, DEPARTMENT_NAME, LOCATION) VALUES (50, '開発', '福岡');
+INSERT INTO DEPARTMENT (DEPARTMENT_ID, DEPARTMENT_NAME, LOCATION) VALUES (60, 'サポート', '札幌');
+INSERT INTO DEPARTMENT (DEPARTMENT_ID, DEPARTMENT_NAME, LOCATION) VALUES (70, '企画', '仙台');
+INSERT INTO DEPARTMENT (DEPARTMENT_ID, DEPARTMENT_NAME, LOCATION) VALUES (80, 'マーケティング', '神戸');
+INSERT INTO DEPARTMENT (DEPARTMENT_ID, DEPARTMENT_NAME, LOCATION) VALUES (90, '品質保証', '京都');
+INSERT INTO DEPARTMENT (DEPARTMENT_ID, DEPARTMENT_NAME, LOCATION) VALUES (100, '法務', '横浜');
+"""
+    ).strip()
+
+    emp_inserts = (
+"""
+INSERT INTO EMPLOYEE (EMPLOYEE_ID, DEPARTMENT_ID, EMPLOYEE_NAME, EMAIL, SALARY) VALUES (1, 10, '佐藤 太郎', 'taro.sato@example.com', 420000);
+INSERT INTO EMPLOYEE (EMPLOYEE_ID, DEPARTMENT_ID, EMPLOYEE_NAME, EMAIL, SALARY) VALUES (2, 20, '鈴木 花子', 'hanako.suzuki@example.com', 510000);
+INSERT INTO EMPLOYEE (EMPLOYEE_ID, DEPARTMENT_ID, EMPLOYEE_NAME, EMAIL, SALARY) VALUES (3, 30, '高橋 健', 'ken.takahashi@example.com', 480000);
+INSERT INTO EMPLOYEE (EMPLOYEE_ID, DEPARTMENT_ID, EMPLOYEE_NAME, EMAIL, SALARY) VALUES (4, 40, '田中 美咲', 'misaki.tanaka@example.com', 550000);
+INSERT INTO EMPLOYEE (EMPLOYEE_ID, DEPARTMENT_ID, EMPLOYEE_NAME, EMAIL, SALARY) VALUES (5, 50, '伊藤 直樹', 'naoki.ito@example.com', 600000);
+INSERT INTO EMPLOYEE (EMPLOYEE_ID, DEPARTMENT_ID, EMPLOYEE_NAME, EMAIL, SALARY) VALUES (6, 50, '渡辺 真央', 'mao.watanabe@example.com', 620000);
+INSERT INTO EMPLOYEE (EMPLOYEE_ID, DEPARTMENT_ID, EMPLOYEE_NAME, EMAIL, SALARY) VALUES (7, 40, '山本 大輔', 'daisuke.yamamoto@example.com', 530000);
+INSERT INTO EMPLOYEE (EMPLOYEE_ID, DEPARTMENT_ID, EMPLOYEE_NAME, EMAIL, SALARY) VALUES (8, 30, '中村 さくら', 'sakura.nakamura@example.com', 470000);
+INSERT INTO EMPLOYEE (EMPLOYEE_ID, DEPARTMENT_ID, EMPLOYEE_NAME, EMAIL, SALARY) VALUES (9, 20, '小林 翔', 'sho.kobayashi@example.com', 520000);
+INSERT INTO EMPLOYEE (EMPLOYEE_ID, DEPARTMENT_ID, EMPLOYEE_NAME, EMAIL, SALARY) VALUES (10, 10, '加藤 恵', 'megumi.kato@example.com', 450000);
+INSERT INTO EMPLOYEE (EMPLOYEE_ID, DEPARTMENT_ID, EMPLOYEE_NAME, EMAIL, SALARY) VALUES (11, 60, '吉田 光', 'hikari.yoshida@example.com', 400000);
+INSERT INTO EMPLOYEE (EMPLOYEE_ID, DEPARTMENT_ID, EMPLOYEE_NAME, EMAIL, SALARY) VALUES (12, 70, '佐々木 蓮', 'ren.sasaki@example.com', 460000);
+"""
+    ).strip()
+
+    proj_inserts = (
+"""
+INSERT INTO PROJECT (PROJECT_ID, DEPARTMENT_ID, PROJECT_NAME, START_DATE, BUDGET) VALUES (101, 50, '受注管理システム', DATE '2025-04-01', 15000000);
+INSERT INTO PROJECT (PROJECT_ID, DEPARTMENT_ID, PROJECT_NAME, START_DATE, BUDGET) VALUES (102, 40, '新製品販売強化', DATE '2025-05-01', 8000000);
+INSERT INTO PROJECT (PROJECT_ID, DEPARTMENT_ID, PROJECT_NAME, START_DATE, BUDGET) VALUES (103, 20, '会計自動化', DATE '2025-02-01', 6000000);
+INSERT INTO PROJECT (PROJECT_ID, DEPARTMENT_ID, PROJECT_NAME, START_DATE, BUDGET) VALUES (104, 10, '社内ポータル刷新', DATE '2025-01-15', 3000000);
+INSERT INTO PROJECT (PROJECT_ID, DEPARTMENT_ID, PROJECT_NAME, START_DATE, BUDGET) VALUES (105, 60, '顧客サポート改善', DATE '2025-03-10', 5000000);
+INSERT INTO PROJECT (PROJECT_ID, DEPARTMENT_ID, PROJECT_NAME, START_DATE, BUDGET) VALUES (106, 70, '市場調査強化', DATE '2025-06-01', 4000000);
+INSERT INTO PROJECT (PROJECT_ID, DEPARTMENT_ID, PROJECT_NAME, START_DATE, BUDGET) VALUES (107, 90, '品質監査強化', DATE '2025-07-01', 3500000);
+INSERT INTO PROJECT (PROJECT_ID, DEPARTMENT_ID, PROJECT_NAME, START_DATE, BUDGET) VALUES (108, 50, '開発基盤整備', DATE '2025-03-01', 12000000);
+INSERT INTO PROJECT (PROJECT_ID, DEPARTMENT_ID, PROJECT_NAME, START_DATE, BUDGET) VALUES (109, 40, '大口顧客開拓', DATE '2025-04-15', 7000000);
+INSERT INTO PROJECT (PROJECT_ID, DEPARTMENT_ID, PROJECT_NAME, START_DATE, BUDGET) VALUES (110, 30, '採用強化', DATE '2025-02-20', 2000000);
+"""
+    ).strip()
+
+    return {
+        "DEPARTMENT": dep_inserts,
+        "EMPLOYEE": emp_inserts,
+        "PROJECT": proj_inserts,
+    }
+
+
+def _lessons() -> List[Dict[str, str]]:
+    """SELECT学習用のレッスン定義を返す.
+
+    Returns:
+        list[dict]: 各レッスンの {id, title, desc, sql}
+    """
+    lessons: List[Dict[str, str]] = [
+        {
+            "id": "L01",
+            "title": "SELECTの基本（1表）",
+            "desc": "まずは基本から！社員一覧表（EMPLOYEE）から、名前や給与などの情報を取り出してみましょう。",
+            "sql": "SELECT EMPLOYEE_ID, EMPLOYEE_NAME, SALARY FROM EMPLOYEE ORDER BY EMPLOYEE_ID FETCH FIRST 10 ROWS ONLY;",
+        },
+        {
+            "id": "L02",
+            "title": "WHERE条件",
+            "desc": "条件を絞り込んでみましょう。給与が50万円以上の社員だけをピックアップして表示します。",
+            "sql": "SELECT EMPLOYEE_NAME, SALARY FROM EMPLOYEE WHERE SALARY >= 500000 ORDER BY SALARY DESC;",
+        },
+        {
+            "id": "L03",
+            "title": "LIKEとUPPER",
+            "desc": "あいまいな条件で検索します。名前に「佐」という文字が含まれている社員を探し出します。",
+            "sql": "SELECT EMPLOYEE_NAME FROM EMPLOYEE WHERE UPPER(EMPLOYEE_NAME) LIKE UPPER('%佐%');",
+        },
+        {
+            "id": "L04",
+            "title": "DISTINCT",
+            "desc": "重複を取り除きます。同じ所在地が何度も出てこないように、所在地の種類だけをスッキリと一覧表示します。",
+            "sql": "SELECT DISTINCT LOCATION FROM DEPARTMENT ORDER BY LOCATION;",
+        },
+        {
+            "id": "L05",
+            "title": "日付関数（今年開始のプロジェクト）",
+            "desc": "日付を扱います。今年スタートしたプロジェクトだけを抜き出して表示してみましょう。",
+            "sql": "SELECT PROJECT_NAME, START_DATE, BUDGET FROM PROJECT WHERE EXTRACT(YEAR FROM START_DATE) = EXTRACT(YEAR FROM SYSDATE) ORDER BY START_DATE;",
+        },
+        {
+            "id": "L06",
+            "title": "CASE式（給与帯ラベル）",
+            "desc": "条件によって表示を変えます。給与の金額に応じて、自動的に「S」「M」「L」というランクを付けて表示します。",
+            "sql": "SELECT EMPLOYEE_NAME, SALARY, CASE WHEN SALARY >= 600000 THEN 'S' WHEN SALARY >= 500000 THEN 'M' ELSE 'L' END AS 給与帯 FROM EMPLOYEE ORDER BY SALARY DESC;",
+        },
+        {
+            "id": "L07",
+            "title": "JOIN（社員×部門）",
+            "desc": "複数の表を組み合わせてみましょう。社員の情報に、その人が所属する「部署名」をくっつけて表示します。",
+            "sql": "SELECT e.EMPLOYEE_NAME, d.DEPARTMENT_NAME, e.SALARY FROM EMPLOYEE e JOIN DEPARTMENT d ON e.DEPARTMENT_ID = d.DEPARTMENT_ID ORDER BY d.DEPARTMENT_ID, e.EMPLOYEE_ID;",
+        },
+        {
+            "id": "L08",
+            "title": "LEFT JOIN（プロジェクトがない部門）",
+            "desc": "外部結合を学びます。まだプロジェクトが一つもない部署を見つけ出します。",
+            "sql": "SELECT d.DEPARTMENT_NAME FROM DEPARTMENT d LEFT JOIN PROJECT p ON p.DEPARTMENT_ID = d.DEPARTMENT_ID WHERE p.PROJECT_ID IS NULL ORDER BY d.DEPARTMENT_NAME;",
+        },
+        {
+            "id": "L09",
+            "title": "集約（COUNT/SUM）",
+            "desc": "データを集計します。それぞれの部署に「何人の社員がいるか」や「給与の合計はいくらか」を計算してみましょう。",
+            "sql": "SELECT d.DEPARTMENT_NAME, COUNT(*) AS 人数, SUM(e.SALARY) AS 総給与 FROM EMPLOYEE e JOIN DEPARTMENT d ON e.DEPARTMENT_ID = d.DEPARTMENT_ID GROUP BY d.DEPARTMENT_NAME ORDER BY 人数 DESC;",
+        },
+        {
+            "id": "L10",
+            "title": "AVGとHAVING",
+            "desc": "集計結果に対してさらに条件を付けます。社員の「平均給与」が高い（50万円以上）部署だけを抜き出します。",
+            "sql": "SELECT d.DEPARTMENT_NAME, AVG(e.SALARY) AS 平均給与 FROM EMPLOYEE e JOIN DEPARTMENT d ON e.DEPARTMENT_ID = d.DEPARTMENT_ID GROUP BY d.DEPARTMENT_NAME HAVING AVG(e.SALARY) >= 500000 ORDER BY 平均給与 DESC;",
+        },
+        {
+            "id": "L11",
+            "title": "ビューの利用（V_EMP_DEPT）",
+            "desc": "便利な「ビュー」を使ってみましょう。あらかじめ用意された「社員と部署のセット」から、簡単にデータを取得します。",
+            "sql": "SELECT EMPLOYEE_NAME, DEPARTMENT_NAME, SALARY FROM V_EMP_DEPT ORDER BY DEPARTMENT_NAME, EMPLOYEE_NAME;",
+        },
+        {
+            "id": "L12",
+            "title": "サブクエリ（平均より高い給与）",
+            "desc": "2段階で検索します。「全社員の平均給与」を計算し、それよりも高いお給料をもらっている社員を探します。",
+            "sql": "SELECT EMPLOYEE_NAME, SALARY FROM EMPLOYEE WHERE SALARY > (SELECT AVG(SALARY) FROM EMPLOYEE) ORDER BY SALARY DESC;",
+        },
+        {
+            "id": "L13",
+            "title": "相関サブクエリ（部門平均より高い）",
+            "desc": "少し高度な検索です。「その人が所属する部署の平均」と比べて、より高い給与をもらっている社員を見つけます。",
+            "sql": "SELECT e.EMPLOYEE_NAME, e.SALARY, d.DEPARTMENT_NAME FROM EMPLOYEE e JOIN DEPARTMENT d ON e.DEPARTMENT_ID = d.DEPARTMENT_ID WHERE e.SALARY > (SELECT AVG(e2.SALARY) FROM EMPLOYEE e2 WHERE e2.DEPARTMENT_ID = e.DEPARTMENT_ID) ORDER BY e.SALARY DESC;",
+        },
+        {
+            "id": "L14",
+            "title": "EXISTS（プロジェクトを持つ部門）",
+            "desc": "データの存在確認をします。何らかのプロジェクトを持っている（プロジェクトが存在する）部署だけを表示します。",
+            "sql": "SELECT d.DEPARTMENT_NAME FROM DEPARTMENT d WHERE EXISTS (SELECT 1 FROM PROJECT p WHERE p.DEPARTMENT_ID = d.DEPARTMENT_ID) ORDER BY d.DEPARTMENT_NAME;",
+        },
+        {
+            "id": "L15",
+            "title": "WITH句（CTE）",
+            "desc": "複雑な計算を整理します。先に「部署ごとの平均」を計算しておき、それを後から社員データと組み合わせて使います。",
+            "sql": (
+                "WITH dept_avg AS (\n"
+                "  SELECT DEPARTMENT_ID, AVG(SALARY) AS AVG_SAL\n"
+                "    FROM EMPLOYEE\n"
+                "    GROUP BY DEPARTMENT_ID\n"
+                ")\n"
+                "SELECT e.EMPLOYEE_NAME, d.DEPARTMENT_NAME, e.SALARY, da.AVG_SAL\n"
+                "  FROM EMPLOYEE e\n"
+                "  JOIN DEPARTMENT d ON e.DEPARTMENT_ID = d.DEPARTMENT_ID\n"
+                "  LEFT JOIN dept_avg da ON da.DEPARTMENT_ID = d.DEPARTMENT_ID\n"
+                "  ORDER BY d.DEPARTMENT_NAME, e.SALARY DESC;"
+            ),
+        },
+    ]
+    return lessons
+
+
+def build_sql_learning_tab(pool):
+    """SQL学習タブのUIを構築する.
+
+    Args:
+        pool: 遅延初期化されたOracle接続プール
+    """
+    tables_sql, views_sql = _schema_sql()
+    inserts = _insert_sql()
+    lessons = _lessons()
+
+    with gr.TabItem(label="SQL学習"):
+        with gr.Accordion(
+            label="1. 学習用スキーマの準備",
+            open=True,
+            visible=False,
+        ) as schema_setup_accordion:
+            gr.Markdown(
+                value=(
+                    "ℹ️ このセクションでは学習用の3つの表（DEPARTMENT/EMPLOYEE/PROJECT）と2つのビュー（V_EMP_DEPT/V_DEPT_PROJECT）を作成し、サンプルデータを投入します。\n\n"
+                    "ℹ️ 各ステップは『SQLの表示』→『実行』の2段階です。"
+                ),
+                visible=True,
+            )
+
+            with gr.Row():
+                with gr.Column():
+                    show_tables_btn = gr.Button("表作成用のSQLを表示", variant="secondary")
+                with gr.Column():
+                    exec_tables_btn = gr.Button("表を作成", variant="primary")
+            # 表示状態を追跡するState変数
+            tables_sql_visible_state = gr.State(value=False)
+            with gr.Row():
+                tables_sql_text = gr.Textbox(label="SQL", value=tables_sql, lines=10, max_lines=20, interactive=False, show_copy_button=True, visible=False, elem_id="sql_learning_tables_sql", autoscroll=False)
+            with gr.Row():
+                    tables_result_md = gr.Markdown(visible=False)
+
+            with gr.Row():
+                with gr.Column():
+                    show_views_btn = gr.Button("ビュー作成用のSQLを表示", variant="secondary")
+                with gr.Column():
+                    exec_views_btn = gr.Button("ビューを作成", variant="primary")
+            # 表示状態を追跡するState変数
+            views_sql_visible_state = gr.State(value=False)
+            with gr.Row():
+                views_sql_text = gr.Textbox(label="SQL", value=views_sql, lines=8, max_lines=20, interactive=False, show_copy_button=True, visible=False, elem_id="sql_learning_views_sql", autoscroll=False)
+            with gr.Row():
+                views_result_md = gr.Markdown(visible=False)
+
+            with gr.Row():
+                with gr.Column():
+                    show_inserts_btn = gr.Button("データ挿入用のSQLを表示", variant="secondary")
+                with gr.Column():
+                    exec_inserts_btn = gr.Button("データを挿入", variant="primary")
+            # 表示状態を追跡するState変数
+            inserts_sql_visible_state = gr.State(value=False)
+            with gr.Row():
+                inserts_sql_text = gr.Textbox(label="SQL", value="", lines=8, max_lines=20, interactive=False, show_copy_button=True, visible=False, elem_id="sql_learning_insert_sql")
+            with gr.Row():
+                inserts_result_md = gr.Markdown(visible=False)
+
+            with gr.Row():
+                reset_btn = gr.Button("初期化（ドロップ）", variant="stop")
+            with gr.Row():
+                reset_result_md = gr.Markdown(visible=False)
+
+        with gr.Accordion(
+            label="1. SELECTの学習（ステップ）",
+            open=True,
+        ) as select_learning_accordion:
+            pd.DataFrame([{k: lesson[k] for k in ("id", "title", "desc")} for lesson in lessons])
+            # デフォルトレッスン（L01）の情報を取得
+            default_lesson = lessons[0]
+            default_lesson_text = f"【{default_lesson['id']}】{default_lesson['title']}\n\n{default_lesson['desc']}"
+            
+            with gr.Row():
+                with gr.Column(scale=1):
+                    gr.Markdown("レッスン", elem_classes="input-label")
+                with gr.Column(scale=5):
+                    lesson_select = gr.Dropdown(
+                        show_label=False,
+                        choices=[f"{lesson['id']} - {lesson['title']}" for lesson in lessons],
+                        value=f"{lessons[0]['id']} - {lessons[0]['title']}",
+                        container=False,
+                    )
+            with gr.Row():
+                with gr.Column(scale=1):
+                    gr.Markdown("レッスンの説明", elem_classes="input-label")
+                with gr.Column(scale=5):
+                    lesson_desc_md = gr.Markdown(visible=True, value=default_lesson_text)
+            with gr.Row():
+                with gr.Column(scale=1):
+                    gr.Markdown("学習SQL", elem_classes="input-label")
+                with gr.Column(scale=5):
+                    lesson_sql_text = gr.Textbox(show_label=False, lines=6, max_lines=15, interactive=True, show_copy_button=True, autoscroll=False, value=default_lesson['sql'], container=False)
+
+            with gr.Row():
+                run_lesson_btn = gr.Button("このSQLを実行", variant="primary")
+            with gr.Row():
+                lesson_result_info = gr.Markdown(visible=False)
+            with gr.Row():
+                lesson_result_df = gr.Dataframe(label="実行結果", interactive=False, wrap=True, visible=False, value=pd.DataFrame(), elem_id="query_result_df")
+            with gr.Row():
+                lesson_result_style = gr.HTML(visible=False)
+
+        def _show_tables(current_visible):
+            """表作成用のSQL表示を切り替える."""
+            new_visible = not current_visible
+            new_label = "表作成用のSQLを非表示" if new_visible else "表作成用のSQLを表示"
+            return gr.Button(value=new_label), gr.Textbox(visible=new_visible, autoscroll=False), new_visible
+
+        def _exec_tables():
+            try:
+                info_md, df_comp, style_html = execute_sql_general(pool, tables_sql, limit=0)
+                if _sql_learning_success(info_md):
+                    _upsert_sample_tables_cache()
+                return info_md
+            except Exception as e:
+                return gr.Markdown(visible=True, value=f"❌ 表作成に失敗しました: {e}")
+
+        def _show_views(current_visible):
+            """ビュー作成用のSQL表示を切り替える."""
+            new_visible = not current_visible
+            new_label = "ビュー作成用SQLを非表示" if new_visible else "ビュー作成用のSQLを表示"
+            return gr.Button(value=new_label), gr.Textbox(visible=new_visible, autoscroll=False), new_visible
+
+        def _exec_views():
+            try:
+                info_md, df_comp, style_html = execute_sql_general(pool, views_sql, limit=0)
+                if _sql_learning_success(info_md):
+                    _upsert_sample_views_cache()
+                return info_md
+            except Exception as e:
+                return gr.Markdown(visible=True, value=f"❌ ビュー作成に失敗しました: {e}")
+
+        def _show_inserts(current_visible):
+            """データ挿入用のSQL表示を切り替える."""
+            sql = (inserts["DEPARTMENT"] + "\n" + inserts["EMPLOYEE"] + "\n" + inserts["PROJECT"]).strip()
+            new_visible = not current_visible
+            new_label = "データ挿入用のSQLを非表示" if new_visible else "データ挿入用のSQLを表示"
+            return gr.Button(value=new_label), gr.Textbox(visible=new_visible, value=sql if new_visible else "", autoscroll=False), new_visible
+
+        def _exec_inserts():
+            try:
+                sql = (inserts["DEPARTMENT"] + "\n" + inserts["EMPLOYEE"] + "\n" + inserts["PROJECT"]).strip()
+                info_md, df_comp, style_html = execute_sql_general(pool, sql, limit=0)
+                return info_md
+            except Exception as e:
+                return gr.Markdown(visible=True, value=f"❌ データ投入に失敗しました: {e}")
+
+        def _reset_all():
+            try:
+                # 個別に実行するSQLリスト（DROP TABLEは強制実行）
+                drop_sqls = [
+                    "DROP VIEW V_DEPT_PROJECT",
+                    "DROP VIEW V_EMP_DEPT",
+                    "TRUNCATE TABLE PROJECT",
+                    "TRUNCATE TABLE EMPLOYEE",
+                    "TRUNCATE TABLE DEPARTMENT",
+                    "DROP TABLE PROJECT CASCADE CONSTRAINTS PURGE",
+                    "DROP TABLE EMPLOYEE CASCADE CONSTRAINTS PURGE",
+                    "DROP TABLE DEPARTMENT CASCADE CONSTRAINTS PURGE"
+                ]
+
+                error_count = 0
+                removed_tables = []
+                removed_views = []
+                with pool.acquire() as conn:
+                    with conn.cursor() as cursor:
+                        for sql in drop_sqls:
+                            try:
+                                cursor.execute(sql)
+                                up = sql.upper()
+                                if up.startswith("DROP VIEW"):
+                                    removed_views.append(up.split()[2])
+                                elif up.startswith("DROP TABLE"):
+                                    removed_tables.append(up.split()[2])
+                            except Exception as e:
+                                # 失敗しても続行。エラーはログに出力し、カウントする
+                                logger.warning(f"Drop/Truncate ignored error: {e} [SQL: {sql}]")
+                                if "ORA-00942" in str(e) or "ORA-04043" in str(e):
+                                    up = sql.upper()
+                                    if up.startswith("DROP VIEW"):
+                                        removed_views.append(up.split()[2])
+                                    elif up.startswith("DROP TABLE"):
+                                        removed_tables.append(up.split()[2])
+                                else:
+                                    error_count += 1
+
+                _remove_sample_objects_cache(removed_tables, removed_views)
+                
+                msg = "✅ 初期化（削除処理）が完了しました"
+                if error_count > 0:
+                    msg += f" (失敗: {error_count}件)"
+                
+                # 再作成
+                # info1, df1, _ = execute_sql_general(pool, tables_sql, limit=0)
+                # info2, df2, _ = execute_sql_general(pool, views_sql, limit=0)
+                # info3, df3, _ = execute_sql_general(pool, (inserts["DEPARTMENT"] + "\n" + inserts["EMPLOYEE"] + "\n" + inserts["PROJECT"]).strip(), limit=0)
+                return gr.Markdown(visible=True, value=msg)
+            except Exception as e:
+                return gr.Markdown(visible=True, value=f"❌ 初期化に失敗しました: {e}")
+
+        def _on_lesson_change(choice: str):
+            try:
+                sel_id = (choice or "").split(" - ")[0]
+                lmap = {lesson["id"]: lesson for lesson in lessons}
+                lesson = lmap.get(sel_id)
+                if not lesson:
+                    return gr.Markdown(visible=True, value="⚠️ レッスンが見つかりません"), gr.Textbox(value="", autoscroll=False),
+                return gr.Markdown(visible=True, value=f"【{lesson['id']}】{lesson['title']}\n\n{lesson['desc']}"), gr.Textbox(value=lesson["sql"], autoscroll=False) 
+            except Exception as e:
+                return gr.Markdown(visible=True, value=f"❌ 取得に失敗しました: {e}"), gr.Textbox(value="", autoscroll=False)
+
+        def _run_lesson(sql_text: str):
+            try:
+                sql_no_comment = remove_comments(sql_text)
+                info_md, df_comp, style_html = execute_select_sql(pool, sql_no_comment, limit=1000)
+                # データが返却されなかった場合はDataFrameを非表示にする
+                df_value = df_comp.value if hasattr(df_comp, 'value') else df_comp
+                if df_value is None or (isinstance(df_value, pd.DataFrame) and df_value.empty):
+                    return info_md, gr.Dataframe(visible=False, value=pd.DataFrame()), gr.HTML(visible=False)
+                return info_md, df_comp, style_html
+            except Exception as e:
+                return gr.Markdown(visible=True, value=f"❌ 実行に失敗しました: {e}"), gr.Dataframe(visible=False, value=pd.DataFrame()), gr.HTML(visible=False)
+
+        # イベントハンドラの接続
+        show_tables_btn.click(fn=_admin_only_event(_show_tables), inputs=[tables_sql_visible_state], outputs=[show_tables_btn, tables_sql_text, tables_sql_visible_state])
+        exec_tables_btn.click(fn=_admin_only_event(_exec_tables), outputs=[tables_result_md])
+
+        show_views_btn.click(fn=_admin_only_event(_show_views), inputs=[views_sql_visible_state], outputs=[show_views_btn, views_sql_text, views_sql_visible_state])
+        exec_views_btn.click(fn=_admin_only_event(_exec_views), outputs=[views_result_md])
+
+        show_inserts_btn.click(fn=_admin_only_event(_show_inserts), inputs=[inserts_sql_visible_state], outputs=[show_inserts_btn, inserts_sql_text, inserts_sql_visible_state])
+        exec_inserts_btn.click(fn=_admin_only_event(_exec_inserts), outputs=[inserts_result_md])
+
+        reset_btn.click(fn=_admin_only_event(_reset_all), outputs=[reset_result_md])
+
+        lesson_select.change(fn=_on_lesson_change, inputs=[lesson_select], outputs=[lesson_desc_md, lesson_sql_text])
+        run_lesson_btn.click(fn=_run_lesson, inputs=[lesson_sql_text], outputs=[lesson_result_info, lesson_result_df, lesson_result_style])
+
+    return schema_setup_accordion, select_learning_accordion

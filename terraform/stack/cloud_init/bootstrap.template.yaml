@@ -1,0 +1,116 @@
+#cloud-config
+output: {all: '| tee -a /var/log/cloud-init-custom.log'}
+bootcmd:
+  - mkdir -p /u01/aipoc/props /u01/aipoc/wallets
+package_update: true
+package_upgrade: false
+packages:
+  - git
+  - unzip
+  - netfilter-persistent
+  - python3
+  - python3-venv
+  - python3-pip
+write_files:
+  - path: "/u01/aipoc/props/region.txt"
+    permissions: "0644"
+    content: ${region}
+
+  - path: "/u01/aipoc/props/compartment_id.txt"
+    permissions: "0644"
+    content: ${compartment_id}
+
+  - path: "/u01/aipoc/props/atp.env"
+    permissions: "0600"
+    encoding: "gzip+base64"
+    content: |
+      ${atp_conn}
+
+  - path: "/u01/aipoc/props/atp_password.txt"
+    permissions: "0600"
+    encoding: "gzip+base64"
+    content: |
+      ${atp_password}
+
+  - path: "/u01/aipoc/props/lakehouse.env"
+    permissions: "0600"
+    encoding: "gzip+base64"
+    content: |
+      ${lakehouse_conn}
+
+  - path: "/u01/aipoc/props/lakehouse_password.txt"
+    permissions: "0600"
+    encoding: "gzip+base64"
+    content: |
+      ${lakehouse_password}
+
+  - path: "/u01/aipoc/props/atp_name.txt"
+    permissions: "0644"
+    content: ${atp_name}
+
+  - path: "/u01/aipoc/props/lakehouse_name.txt"
+    permissions: "0644"
+    content: ${lakehouse_name}
+
+  - path: "/u01/aipoc/props/aidp_ocid.txt"
+    permissions: "0644"
+    content: ${aidp_ocid}
+
+  - path: "/u01/aipoc/props/oac_name.txt"
+    permissions: "0644"
+    content: ${oac_name}
+
+  - path: "/u01/aipoc/props/bucket_name.txt"
+    permissions: "0644"
+    content: ${bucket_name}
+
+  - path: "/u01/aipoc/props/wallet_atp.zip"
+    permissions: "0644"
+    encoding: "base64"
+    content: |
+      ${atp_wallet_content}
+
+  - path: "/u01/aipoc/props/wallet_lh.zip"
+    permissions: "0644"
+    encoding: "base64"
+    content: |
+      ${lakehouse_wallet_content}
+
+  - path: "/u01/aipoc/props/admin_web_password.txt"
+    permissions: "0600"
+    encoding: "gzip+base64"
+    content: |
+      ${app_admin_password}
+
+  - path: "/u01/aipoc/props/application_port.txt"
+    permissions: "0644"
+    content: |
+      ${application_port}
+
+  - path: "/u01/aipoc/props/github_deploy_key_url.txt"
+    permissions: "0644"
+    content: ${github_deploy_key_url}
+
+runcmd:
+  - iptables -I INPUT 6 -m state --state NEW -p tcp --dport ${application_port} -j ACCEPT
+  - netfilter-persistent save
+  - echo "Downloading and running init script..."
+  - cd /u01/aipoc
+  - echo "Setting up SSH config for GitHub..."
+  - mkdir -p /root/.ssh
+  - chmod 700 /root/.ssh
+  - echo "Downloading GitHub deploy key from Object Storage..."
+  - curl -s -o /root/.ssh/github_deploy_key $(cat /u01/aipoc/props/github_deploy_key_url.txt)
+  - chmod 600 /root/.ssh/github_deploy_key
+  - |
+    cat > /root/.ssh/config << 'EOF'
+    Host github.com
+      IdentityFile /root/.ssh/github_deploy_key
+      StrictHostKeyChecking no
+      UserKnownHostsFile=/dev/null
+    EOF
+  - chmod 600 /root/.ssh/config
+  - GIT_SSH_COMMAND="ssh -i /root/.ssh/github_deploy_key -o StrictHostKeyChecking=no" git clone --branch ${application_git_tag} --single-branch git@github.com:engchina/no.1-oci-aidp-lakehouse-lab.git
+  - cd /u01/aipoc/no.1-oci-aidp-lakehouse-lab
+  - chmod +x init_script.sh
+  - nohup bash init_script.sh >> /var/log/cloud-init-custom.log 2>&1 &

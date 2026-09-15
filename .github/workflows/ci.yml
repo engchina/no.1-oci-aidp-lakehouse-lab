@@ -59,3 +59,19 @@ jobs:
           else
             echo "Shell スクリプトが見つからないためスキップします。"
           fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Gradio アプリ（main.py / utils/）の構文チェック
+      - name: Python syntax check
+        run: |
+          py_files=$(find . -name '*.py' -not -path './.git/*' -not -path './.venv/*')
+          if [ -n "$py_files" ]; then
+            python3 -m compileall -q main.py utils
+            echo "Python の構文チェックに合格しました。"
+          else
+            echo "Python ファイルが見つからないためスキップします。"
+          fi
