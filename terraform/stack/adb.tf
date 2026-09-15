@@ -24,8 +24,23 @@ resource "oci_database_autonomous_database" "atp" {
   is_preview_version_with_service_terms_accepted = "false"
   license_model                                  = var.adb_license_model
   ncharacter_set                                 = "AL16UTF16"
-  # lab 用途のため既定はパブリックエンドポイント。
-  # PRIVATE_ENDPOINT_ONLY / SECURE_ACCESS... にする場合 subnet_id / whitelisted_ips を別途設定する。
+  # ネットワークアクセス（nl2sql 参照の導出）:
+  #   PUBLIC     → 両者 unset（パブリック・エンドポイント）
+  #   SECURE_ACL → whitelisted_ips
+  #   PRIVATE    → subnet_id
+  subnet_id       = local.adb_private_endpoint_enabled ? var.adb_subnet_id : null
+  whitelisted_ips = local.adb_secure_acl_enabled ? local.adb_whitelisted_ip_entries : null
+
+  lifecycle {
+    precondition {
+      condition     = !(local.adb_private_endpoint_enabled && trimspace(var.adb_subnet_id) == "")
+      error_message = "adb_network_access_type = PRIVATE の場合、adb_subnet_id を指定してください。"
+    }
+    precondition {
+      condition     = !(local.adb_secure_acl_enabled && length(local.adb_whitelisted_ip_entries) == 0)
+      error_message = "adb_network_access_type = SECURE_ACL の場合、adb_whitelisted_ips を指定してください。"
+    }
+  }
 }
 
 # ATP 用インスタンスウォレット（アプリの oracledb 接続・OAC 接続で使う）
@@ -73,6 +88,20 @@ resource "oci_database_autonomous_database" "lakehouse" {
   is_preview_version_with_service_terms_accepted = "false"
   license_model                                  = var.adb_license_model
   ncharacter_set                                 = "AL16UTF16"
+  # ネットワークアクセス（ATP と同じ方式が共通適用される）
+  subnet_id       = local.adb_private_endpoint_enabled ? var.adb_subnet_id : null
+  whitelisted_ips = local.adb_secure_acl_enabled ? local.adb_whitelisted_ip_entries : null
+
+  lifecycle {
+    precondition {
+      condition     = !(local.adb_private_endpoint_enabled && trimspace(var.adb_subnet_id) == "")
+      error_message = "adb_network_access_type = PRIVATE の場合、adb_subnet_id を指定してください。"
+    }
+    precondition {
+      condition     = !(local.adb_secure_acl_enabled && length(local.adb_whitelisted_ip_entries) == 0)
+      error_message = "adb_network_access_type = SECURE_ACL の場合、adb_whitelisted_ips を指定してください。"
+    }
+  }
 }
 
 # Lakehouse 用インスタンスウォレット

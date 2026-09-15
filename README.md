@@ -45,7 +45,7 @@ Compute 上で動作する **Gradio 設定コンソール**からワンクリッ
 
 | ファイル | リソース |
 |---|---|
-| `adb.tf` | ATP（`db_workload="OLTP"`）+ AI Lakehouse（`db_workload="LH"`）、両ウォレット |
+| `adb.tf` | ATP（`db_workload="OLTP"`）+ AI Lakehouse（`db_workload="LH"`）、両ウォレット、ネットワークアクセス方式（`adb_network_access_type`：PUBLIC 既定 / SECURE_ACL / PRIVATE） |
 | `aidp.tf` | KMS vault / key / secret（Lakehouse ADMIN パスワード）+ AIDP Workbench |
 | `oac.tf` | OAC インスタンス（Professional / USER_COUNT / PUBLIC endpoint） |
 | `compute.tf` | Gradio コンソールを実行する Compute インスタンス |
@@ -96,6 +96,7 @@ Resource Manager のデプロイ**前**に、以下の 5 項目を手動で用�
    - Source: `https://github.com/engchina/no.1-oci-aidp-lakehouse-lab`
    - 相対パス: `terraform/stack`
 3. フォームに入力（パスワード類は 12〜30 文字・英大文字・英小文字・数字を含む、`admin` 不得、`"` 不得）
+   - **ADB ネットワークアクセス方式**（ATP / AI Lakehouse 両方に共通）: `PUBLIC`（既定。すべての場所からセキュア・アクセス）/ `SECURE_ACL`（許可 IP・VCN のみ、`adb_whitelisted_ips` に Compute サブネット CIDR 等を追加）/ `PRIVATE`（プライベート・エンドポイントのみ、`adb_subnet_id` を選択）
 4. Stack をデプロイ。AIDP の作成には 20〜40 分程度かかる場合があります（Work Request 待ち）
 
 ## ③ Terraform 実行後: 順次実施

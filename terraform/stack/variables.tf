@@ -165,6 +165,29 @@ variable "adb_license_model" {
   }
 }
 
+variable "adb_network_access_type" {
+  description = "ADB のネットワークアクセス方式（ATP / AI Lakehouse 両方に共通適用）。PUBLIC = すべての場所からのセキュア・アクセス（パブリック・エンドポイント、既定）、SECURE_ACL = 許可された IP および VCN 限定のセキュア・アクセス（whitelisted_ips 必須）、PRIVATE = プライベート・エンドポイント・アクセスのみ（adb_subnet_id 必須）"
+  type        = string
+  default     = "PUBLIC"
+
+  validation {
+    condition     = contains(["PUBLIC", "SECURE_ACL", "PRIVATE"], var.adb_network_access_type)
+    error_message = "adb_network_access_type は PUBLIC / SECURE_ACL / PRIVATE のいずれかで指定してください。"
+  }
+}
+
+variable "adb_whitelisted_ips" {
+  description = "adb_network_access_type = SECURE_ACL の場合のみ使用。許可する接続元（カンマ区切り）。CIDR ブロック（例: 10.0.0.0/24）または VCN OCID（ocid1.vcn.oc1..、VCN 内すべてのサブネットを許可）を混在させられる。Compute インスタンスからアクセスする場合は当該サブネットの CIDR を含めること。"
+  type        = string
+  default     = ""
+}
+
+variable "adb_subnet_id" {
+  description = "adb_network_access_type = PRIVATE の場合のみ使用。ADB のプライベート・エンドポイントをアタッチするサブネット OCID（Compute と同じ VCN 内を推奨。セキュリティリスト / NSG で 1522 番ポートの許可が必要な場合あり）"
+  type        = string
+  default     = ""
+}
+
 # ------------------------------------------------------------
 # aidp_* : AI Data Platform（AIDP Workbench）
 # ------------------------------------------------------------
