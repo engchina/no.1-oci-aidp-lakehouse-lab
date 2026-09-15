@@ -6,16 +6,18 @@ Terraform では完全に自動化できない部分を、Gradio コンソール
 - Lab DB 初期化
   - ATP へ source_01 ユーザー作成（権限付与 / REST 有効化）
   - AI Lakehouse へ gold_01 ユーザー作成（同左）
-  - サンプル航空会社データ（AIRLINE_SAMPLE 25件）の読込
+  - サンプル航空会社データ（AIRLINE_SAMPLE 25件）の読込 + 先頭行プレビュー
+  - Gold テーブル GOLD_01.AIRLINE_SAMPLE_GOLD の作成（idempotent）
 - AIDP 設定ガイド
-  - AIDP ポリシー付与 / external catalog / medallion schema /
-    LLM 設定 など、Workbench 上での手動作業のチェックリスト。
-    必要な値（DSN・ユーザー名・Delta パス等）をコピー用に表示する。
+  - AIDP ポリシー付与 / external catalog（ATP / ADW）/ LLM 設定 /
+    catalog リフレッシュ など、Workbench 上での手動作業のチェックリスト。
+    必要な値（DSN / service 名 / ユーザー名 / Delta パス等）をコピー用に表示する。
 - OAC 接続
   - OAC REST API によるデータ接続の作成（実験的）
   - AI Lakehouse ウォレットのダウンロード
+  - 後編 Step3 Task 2〜6 の完全手順ガイド + OAC Assistant サンプル質問
 - ヘルスチェック
-  - 各リソースの疎通確認
+  - 各リソースの疎通確認 + 対象テーブルの行数 + Object Storage delta/ パス存在確認
 """
 
 from __future__ import annotations
@@ -43,6 +45,53 @@ _ARTICLE_REF = (
 )
 
 _SAMPLE_TABLE = "AIRLINE_SAMPLE"
+_GOLD_TABLE = "AIRLINE_SAMPLE_GOLD"
+
+# ハンズオン記事 前編 Step2 Task 8-1 の Gold テーブル DDL（13 列）
+_GOLD_TABLE_DDL = """
+CREATE TABLE {schema}.AIRLINE_SAMPLE_GOLD (
+  FLIGHT_ID NUMBER,
+  AIRLINE VARCHAR2(20),
+  ORIGIN VARCHAR2(3),
+  DEST VARCHAR2(3),
+  DEP_DELAY NUMBER,
+  ARR_DELAY NUMBER,
+  DISTANCE NUMBER,
+  AVG_DEP_DELAY NUMBER,
+  AVG_ARR_DELAY NUMBER,
+  AVG_DISTANCE NUMBER,
+  REVIEW VARCHAR2(4000),
+  SENTIMENT_LABEL VARCHAR2(20),
+  SENTIMENT_REASON VARCHAR2(4000)
+)"""
+
+# 外部カタログの既定名（記事 Task 2 / Task 6）
+_ATP_CATALOG_DEFAULT = "atp_external_catalog_01"
+_DATA_CATALOG_DEFAULT = "airlines_data_catalog_01"
+_ADB_CATALOG_DEFAULT = "airlines_external_adb_gold_01"
+
+
+def _adb_service_name(conn_env: str, fallback_db: str = "") -> str:
+    """DSN の host から ADB の service 名（`_medium` クラス）を導出する.
+
+    ADB の DSN host は `<db_name>_high.adb.<region>.oraclecloud.com` 形式のため、
+    先頭ラベルから `_high` 等のサフィックスを外して `_medium` を付け加える。
+    """
+    raw = _env(conn_env)
+    if not raw or raw == "TODO":
+        return f"{fallback_db or '<db名>'}_medium"
+    try:
+        host = parse_oracle_connection_string(raw).dsn.split("@")[-1].split("/")[0].split(":")[0]
+        first = host.split(".")[0]
+        for suffix in ("_high", "_medium", "_low"):
+            if first.endswith(suffix):
+                first = first[: -len(suffix)]
+                break
+        if first:
+            return f"{first}_medium"
+    except Exception:
+        logger.debug("derive service name failed", exc_info=True)
+    return f"{fallback_db or '<db名>'}_medium"
 
 # ハンズオン記事 Step2 Task 1-2 より転載したサンプル航空会社データ（25件）
 _SAMPLE_ROWS = [
@@ -280,6 +329,72 @@ CREATE TABLE {_SAMPLE_TABLE} (
         return f"❌ サンプルデータ読込に失敗しました: {e}"
 
 
+def _create_gold_table() -> str:
+    """AI Lakehouse の gold_01.AIRLINE_SAMPLE_GOLD を作成する（前編 Task 8-1、幂等）."""
+    schema = _env("GOLD_SCHEMA_USER", "GOLD_01").upper()
+    try:
+        with _connect_admin("ORACLE_LAKEHOUSE_CONNECTION_STRING", "WALLET_LH_DIR") as conn:
+            with conn.cursor() as cur:
+                if not _schema_exists(conn, schema):
+                    return f"❌ {schema} スキーマが存在しません。先に「AI Lakehouse → gold_01 スキーマ初期化」を実行してください。"
+                cur.execute(
+                    "SELECT COUNT(*) FROM ALL_TABLES WHERE OWNER = :o AND TABLE_NAME = :t",
+                    {"o": schema, "t": _GOLD_TABLE},
+                )
+                if cur.fetchone()[0]:
+                    cur.execute(f"SELECT COUNT(*) FROM {schema}.{_GOLD_TABLE}")
+                    rows = cur.fetchone()[0]
+                    return (
+                        f"✅ {schema}.{_GOLD_TABLE} は既に存在するためスキップ（現在 {rows} 件）。\n\n"
+                        "次のステップ: AIDP コンソールで external catalog "
+                        f"{_ADB_CATALOG_DEFAULT} をリフレッシュ（「AIDP 設定ガイド」手順 6）し、"
+                        "「AIDP Notebook コード」タブの Task 8-3 を実行してデータ投入。"
+                    )
+                cur.execute(_GOLD_TABLE_DDL.format(schema=schema))
+                conn.commit()
+            return (
+                f"✅ {schema}.{_GOLD_TABLE} を作成しました（13 列）。\n\n"
+                "次のステップ:\n"
+                f"1. AIDP コンソール → Master Catalog → {_ADB_CATALOG_DEFAULT} → リフレッシュ（手順 6）\n"
+                "2. AIDP notebook で Task 7-2〜7-4 を実行し、Task 8-3（SQL INSERT）で投入"
+            )
+    except Exception as e:
+        logger.exception("create gold table failed")
+        return f"❌ Gold テーブル作成に失敗しました: {e}"
+
+
+def _preview_sample_data() -> str:
+    """source_01.AIRLINE_SAMPLE の先頭 5 行を表示する（前編 Task 1-3）."""
+    user = _env("SOURCE_SCHEMA_USER", "SOURCE_01").upper()
+    parts = parse_oracle_connection_string(_env("ORACLE_26AI_CONNECTION_STRING"))
+    kwargs = {}
+    wallet_dir = _env("WALLET_ATP_DIR")
+    if wallet_dir and Path(wallet_dir).is_dir():
+        kwargs["wallet_location"] = wallet_dir
+    password = _env_or("SOURCE_SCHEMA_PASSWORD")
+    if not password:
+        return "❌ SOURCE_SCHEMA_PASSWORD が未設定です。"
+    try:
+        with oracledb.connect(user=user, password=password, dsn=parts.dsn, **kwargs) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT * FROM {_SAMPLE_TABLE} ORDER BY FLIGHT_ID FETCH FIRST 5 ROWS ONLY"
+                )
+                rows = cur.fetchall()
+                if not rows:
+                    return f"⚠️ {user}.{_SAMPLE_TABLE} がまだ空です。先にサンプルデータ読込を実行してください。"
+                cols = [d[0] for d in cur.description]
+        lines = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
+        for row in rows:
+            lines.append("| " + " | ".join("" if v is None else str(v) for v in row) + " |")
+        return (
+            f"**{user}.{_SAMPLE_TABLE} 先頭 5 行**（全 25 件）\n\n" + "\n".join(lines)
+        )
+    except Exception as e:
+        logger.exception("preview sample data failed")
+        return f"❌ プレビューに失敗しました: {e}"
+
+
 def build_lab_db_setup_tab() -> None:
     gr.Markdown(
         f"**DB 内オブジェクトの自動作成**（Terraform ではユーザー作成まで自動化できないため）\n\n{_ARTICLE_REF}"
@@ -310,10 +425,29 @@ def build_lab_db_setup_tab() -> None:
     with gr.Accordion("3. サンプル航空会社データ読込（source_01.AIRLINE_SAMPLE）", open=True):
         load_btn = gr.Button("サンプルデータ 25 件を読込む（idempotent）")
         load_out = gr.Markdown("")
+        gr.Markdown(
+            "読込後は Task 1-3 と同様に `SELECT * FROM AIRLINE_SAMPLE` を確認します。"
+            "「先頭 5 行を表示」ボタンでサンプルを確認できます。"
+        )
+        preview_btn = gr.Button("先頭 5 行を表示（SELECT * プレビュー）")
+        preview_out = gr.Markdown("")
+
+    with gr.Accordion("4. Gold テーブル作成（gold_01.AIRLINE_SAMPLE_GOLD）", open=True):
+        gold_table_md = gr.Markdown(
+            "AIDP notebook（Task 8-3）の `INSERT INTO ... AIRLINE_SAMPLE_GOLD` に先立って、"
+            "AI Lakehouse に Gold テーブルを準備します（記事 前編 Task 8-1、幂等）。\n\n"
+            "```sql\n"
+            + _GOLD_TABLE_DDL.format(schema=_env("GOLD_SCHEMA_USER", "GOLD_01").upper())
+            + "\n```"
+        )
+        gold_table_btn = gr.Button("Gold テーブルを作成（idempotent）")
+        gold_table_out = gr.Markdown("")
 
     source_btn.click(fn=_init_source_schema, inputs=[source_password], outputs=[source_out])
     gold_btn.click(fn=_init_gold_schema, inputs=[gold_password], outputs=[gold_out])
     load_btn.click(fn=_load_sample_data, inputs=None, outputs=[load_out])
+    preview_btn.click(fn=_preview_sample_data, inputs=None, outputs=[preview_out])
+    gold_table_btn.click(fn=_create_gold_table, inputs=None, outputs=[gold_table_out])
 
 
 # ---------------------------------------------------------------------------
@@ -379,6 +513,8 @@ def build_aidp_guide_tab() -> None:
         ns_out = gr.Markdown("")
 
     with gr.Accordion("必要値（コピー用）", open=True):
+        atp_service = _adb_service_name("ORACLE_26AI_CONNECTION_STRING", "airlinesource01")
+        lh_service = _adb_service_name("ORACLE_LAKEHOUSE_CONNECTION_STRING", "aidpdb01")
         gr.Markdown(
             f"""
 | 項目 | 値 |
@@ -386,42 +522,87 @@ def build_aidp_guide_tab() -> None:
 | AIDP コンソール | `{_aidp_console_url()}` |
 | OAC URL | `{_oac_url_hint()}` |
 | ATP DSN | `{_atp_dsn()}` |
+| ATP service（external catalog 用、`_medium`） | `{atp_service}` |
+| Lakehouse service（external catalog / OAC 接続用、`_medium`） | `{lh_service}` |
+| Object Storage namespace | `{_env_or('OCI_NAMESPACE', '(未設定 — 上の入力欄で保存)')}` |
 | source_01 ユーザー名 | `{_env('SOURCE_SCHEMA_USER', 'SOURCE_01')}` |
 | source_01 パスワード | `{_env_or('SOURCE_SCHEMA_PASSWORD', '(未設定 —「Lab DB 初期化」タブで実行)')}` |
 | gold_01 ユーザー名 | `{_env('GOLD_SCHEMA_USER', 'GOLD_01')}` |
 | gold_01 パスワード | `{_env_or('GOLD_SCHEMA_PASSWORD', '(未設定 —「Lab DB 初期化」タブで実行)')}` |
 | Delta 保存先バケット | `{_env('BUCKET_NAME', '(未設定)')}` |
-| Delta パス（例） | `oci://{_env('BUCKET_NAME', '<bucket>')}@<namespace>/delta/airline_sample` |
+| Delta パス（Bronze 例） | `oci://{_env('BUCKET_NAME', '<bucket>')}@{_env_or('OCI_NAMESPACE', '<namespace>')}/delta/airline_sample` |
 """
         )
 
     with gr.Accordion("手順チェックリスト（前編 Step2 / 後編 Step3）", open=True):
+        atp_service = _adb_service_name("ORACLE_26AI_CONNECTION_STRING", "airlinesource01")
+        lh_service = _adb_service_name("ORACLE_LAKEHOUSE_CONNECTION_STRING", "aidpdb01")
+        atp_catalog = _env_or("AIDP_ATP_CATALOG_NAME", _ATP_CATALOG_DEFAULT)
+        data_catalog = _env_or("AIDP_DATA_CATALOG_NAME", _DATA_CATALOG_DEFAULT)
+        adb_catalog = _env_or("AIDP_ADB_CATALOG_NAME", _ADB_CATALOG_DEFAULT)
+        gold_user = _env("GOLD_SCHEMA_USER", "GOLD_01")
+        src_user = _env("SOURCE_SCHEMA_USER", "SOURCE_01")
         gr.Markdown(
-            """
-1. **AIDP ポリシー追加**（本 stack では Terraform が未対応のため手動）
-   - AIDP コンソール → インスタンス → Add policies → `Standard` を選択して追加
-   - Optional policies から `Enable object deletion` も追加（バケットへの Delta 書き込みに必要）
-2. **AIDP 外部カタログ作成**（前編 Step2 Task 2）
-   - AIDP コンソール → Create → Catalog
-   - Catalog type: `External catalog` / External source type: `Oracle Autonomous Transaction Processing`
-   - ATP instance: 本 stack で作成した ATP / Service: `<atp名>_high` / Username: `source_01`
-3. **AIDP 内部カタログ作成**（前編 Step2 Task 4-3）
-   - 標準カタログ `airlines_data_catalog_01` を作成し、`bronze` / `silver` / `gold` スキーマを notebook で作成
-4. **Bronze 取り込み**（前編 Step2 Task 4）
-   - notebook で `COPY FROM` を実行し、`oci://<bucket>@<namespace>/delta/airline_sample` に Delta 保存
-   - 距離が不正のレコードを削除（クレンジング）
-5. **Silver 加工 + レビュー付与**（前編 Step2 Task 5）
-   - 航空会社別平均を LEFT JOIN 付与し、`REVIEW` 列を UDF でランダム付与
-6. **LLM 設定 + 感情分析**（前編 Step2 Task 5-4）
-   - AIDP の LLM 設定で API key（例: xai.grok-4）を登録
-   - レビュー文の Sentiment 列を生成
-7. **AIDP と AI Lakehouse の接続**（前編 Step2 Task 6）
-   - AIDP コンソールで Lakehouse への接続設定（サービス主体への DBMS_SHARE はコンソールが代行）
-8. **Gold 書き出し**（前編 Step2 Task 7）
-   - エンリッチ済みデータを `gold_01.AIRLINE_SAMPLE_GOLD` へ保存
-9. **OAC 接続 + ダッシュボード**（後編 Step3）
-   - 「OAC 接続」タブから接続を作成（または OAC UI で手動）
-   - dataset 作成 → ビジュアル / ダッシュボード作成
+            f"""
+**1. AIDP ポリシー追加**（本 stack では Terraform が未対応のため手動）
+- AIDP コンソール → インスタンス → Add policies → `Standard` を選択して追加
+- Optional policies から `Enable object deletion` も追加（バケットへの Delta 書き込みに必要）
+
+**2. 外部カタログ作成: ATP 接続**（前編 Step2 Task 2）
+- AIDP コンソール → Create → Catalog に以下を入力
+| フィールド | 値 |
+|---|---|
+| Catalog name | `{atp_catalog}` |
+| Catalog type | `External catalog` |
+| External source type | `Oracle Autonomous Transaction Processing` |
+| External source method | `Choose ATP instance` |
+| Compartment | ATP を作成したコンパートメント |
+| ATP instance | 本 stack で作成した ATP を選択（ドロップダウン） |
+| Service | `{atp_service}` |
+| Username | `{src_user}` |
+| Password | 「Lab DB 初期化」タブで設定した値（上のコピー用一覧参照） |
+- 入力後 **Test Connection** → 表示が `Successful` になったら **Create**
+- 数十秒待って Status が `Active` になることを確認（Task 2-12）
+
+**3. ワークスペースとノートブック作成**（前編 Step2 Task 3）
+- 左メニュー **Workspace** → 右上 **Create**:
+  - Workspace name: `airline-workspace_01`
+  - Default catalog: 手順 2 で作成した `{atp_catalog}`
+- ワークスペースを開き、`+` → フォルダ `demo` を作成 → `Notebook` を作成して `airlines-notebook.ipynb` に改名
+- **Cluster** → **Create cluster**: Cluster name `my_workspace_cluster_01`（それ以外はデフォルト）
+- 作成完了後 **Attach existing cluster** でアタッチし `(Active)` を確認
+
+**4. LLM 設定**（前編 Step2 Task 5-4 の前置き）
+- AIDP コンソール → 設定 → LLM 設定: リージョンで提供中のモデル（例: `xai.grok-4`）と API key を登録
+- モデル名は「AIDP Notebook コード」タブの `LLM モデル名` と一致させること
+- 登録後に Notebook の Task 5-4 (1/2) セル（疎通確認）を実行して疎通を確認
+
+**5. 外部カタログ作成: AI Lakehouse (ADW) 接続**（前編 Step2 Task 6）
+- AIDP コンソール → Create → Catalog に以下を入力
+| フィールド | 値 |
+|---|---|
+| Catalog name | `{adb_catalog}` |
+| Catalog type | `External catalog` |
+| External source type | `Oracle Autonomous Data Warehouse` |
+| External source method | `Choose ADW instance` |
+| リージョン / コンパートメント | Lakehouse が所在するリージョン / コンパートメント |
+| ADW instance | 本 stack で作成した AI Lakehouse を選択（ドロップダウン） |
+| Service | `{lh_service}` |
+| Username | `{gold_user}` |
+| Password | 「Lab DB 初期化」タブで設定した値（上のコピー用一覧参照） |
+- **Test connection** が成功したら **Create**
+
+**6. Gold テーブル作成 + 外部カタログのリフレッシュ**（前編 Step2 Task 8-1 / 8-2）
+- 「Lab DB 初期化」タブの「Gold テーブルを作成（idempotent）」ボタンで `{gold_user}.{_GOLD_TABLE}` を作成
+- AIDP コンソール → **Master Catalog** → `{adb_catalog}` をクリックし、右端のアイコンから **External Catalog をリフレッシュ**
+- `{_GOLD_TABLE}` テーブルがカタログに表示されることを確認（表示されない場合はブラウザをリフレッシュして再リフレッシュ）
+
+**7. Notebook を実行**（前編 Step2 Task 4〜5 / 7 / 8-3）
+- 「AIDP Notebook コード」タブでコードをタスク番号順にコピー＆ペーストして実行
+  （Bronze 取り込み → クレンジング → Silver → LLM 感情分析 → Gold 書き込み → SQL INSERT）
+
+**8. OAC 可視化**（後編 Step3）
+- 「OAC 接続」タブの手順チェックリスト（Task 2〜6: 接続 → データセット → ワークブック → OAC Assistant → 自然言語分析）
 """
         )
 
@@ -508,11 +689,12 @@ def _oac_wallet_download():
 
 
 def build_oac_setup_tab() -> None:
+    lh_service = _adb_service_name("ORACLE_LAKEHOUSE_CONNECTION_STRING", "aidpdb01")
     gr.Markdown(
         "**OAC への接続作成**（後編 Step3 Task 1〜2）\n\n"
         "API 経由の自動作成は実験的です。失敗時は OAC UI で手動作成してください"
-        "（接続タイプ: Oracle Autonomous Data Warehouse / wallet アップロード / "
-        "ユーザー `gold_01` / service `<lakehouse名>_high`）。\n\n"
+        f"（接続タイプ: Oracle Autonomous Data Warehouse / wallet アップロード / "
+        f"ユーザー `{_env('GOLD_SCHEMA_USER', 'GOLD_01')}` / service `{lh_service}`）。\n\n"
         f"{_ARTICLE_REF}"
     )
 
@@ -551,26 +733,150 @@ def build_oac_setup_tab() -> None:
         outputs=[wallet_out],
     )
 
+    with gr.Accordion("完全手順チェックリスト（後編 Step3 Task 2〜6）", open=True):
+        gr.Markdown(
+            f"""
+**Task 2: OAC を Gold テーブルに接続**
+1. OAC → 「作成」→「接続」→ 接続タイプ: `Oracle Autonomous Data Warehouse`
+| フィールド | 値 |
+|---|---|
+| 接続名 | `adl-conn-01` |
+| クライアント◇証明 | 上の `wallet_lh.zip` をアップロード |
+| ユーザー名 | `{_env('GOLD_SCHEMA_USER', 'GOLD_01')}` |
+| パスワード | 上の「接続パスワード」 |
+| サービス名 | `{lh_service}` |
+2. 「保存」後、上部に作成完了のポップアップを確認
+3. 「作成」→「データセット」→ 接続 `adl-conn-01` を選択 → 読み込み完了後、左端「スキーマ」→ `GOLD_01` を展開 → `AIRLINE_SAMPLE_GOLD` を中央の白いスペースへドラッグ＆ドロップ
+4. 右上「Save」→ データセット名 `aidp_gold_01_dataset` → 「OK」
+
+**Task 3: Gold データでワークブックを作成**
+1. 右上「ワークブックの作成」（右側に自動インサイトの候補が出ます）
+2. 円グラフ（航空会社別平均出発遅延）: 左端リストから `AVG_DEP_DELAY` と `AIRLINE` をドラッグ → `AIRLINE` を「色」フィールドへ → チャット形式を**円グラフ**アイコンに変更
+3. 棒グラフ（円グラフの**左側**に作成）: 同様に `AVG_DEP_DELAY` と `AIRLINE` をドラッグ
+4. 積み上げグラフ（棒・円グラフの**下側**に作成）: `ARR_DELAY` と `AIRLINE` をドラッグ → `SENTIMENT_LABEL` を「色」フィールドへドラッグ（感情別の平均遅延時間の横積み上げ）
+5. 右上のアイコンからワークブックを保存（名前は `aidp-gold-01-workbook`）
+
+**Task 4: OAC Assistant の設定**
+1. 左上メニュー「コンソール」→「生成AI」: 「生成AIサービスを登録しました」のステータスが **Active** であることを確認（Active でない場合は右端 `:` → `Set Active`）
+2. 「生成AIサービス」が全項目 **Oracle Analytics** であること（異なる場合はプルダウンから選択 → `Update`）
+3. ワークブック `aidp-gold-01-workbook` を開き「編集」→ 画面上部「表示」タブ → 左パネルを下にスクロール → **Insights Panel** を **ON**
+4. Insights Panel 内で **Workbook Assistant が On** かつ **データセット `aidp_gold_01_dataset` にチェック** が入っていることを確認 → ワークブックを保存
+
+**Task 5: データセットのインデックス化（Assistant 利用の必須条件）**
+1. 左上メニュー「データ」→ `aidp_gold_01_dataset` の右端メニュー →「検査」
+2. 「検索」を開き、「データセットの索引付け」をプルダウンから選択
+3. 「言語」と索引タイプが正しいことを確認 →「保存」→「即時実行」
+4. 最終実行が「成功」になることを確認
+
+**Task 6: OAC Assistant で自然言語分析**
+- ワークブックを開き、「自動インサイト」アイコンから「アシスタント」を開くと、データセットに対して自然言語で質問できます。
+- 下のサンプル質問をコピーして試してください（結果は棒/折れ線グラフや表で返ります。「+」ボタンでキャンバスへ追加できます）。
+"""
+        )
+
+    with gr.Accordion("OAC Assistant サンプル質問（コピー用）", open=True):
+        gr.Markdown(
+            """
+**Q1: 航空会社ごとの平均出発遅延**（棒グラフ / 折れ線グラフ）
+```text
+航空会社ごとの平均出発遅延を表示してください。
+```
+**Q2: 航空会社ごとの平均飛行距離**
+```text
+航空会社ごとの平均飛行距離を表示してください。
+```
+**Q3: Nebula Express の感情分析理由の確認**（積み上げグラフから発覚した傾向の深掘り）
+```text
+Nebula Express の SENTIMENT_REASON を表示してください。
+```
+"""
+        )
+
 
 # ---------------------------------------------------------------------------
 # Tab: ヘルスチェック
 # ---------------------------------------------------------------------------
 
+def _check_delta_paths() -> str:
+    """Object Storage の delta/ パス存在を確認する（best effort, OCI SDK）."""
+    ns = _env_or("OCI_NAMESPACE")
+    bucket = _env_or("BUCKET_NAME")
+    if not ns or not bucket or bucket == "TODO":
+        return "- ⚠️ Object Storage delta パス: OCI_NAMESPACE / BUCKET_NAME 未設定のためスキップ（「AIDP 設定ガイド」タブで namespace を保存）"
+    try:
+        import oci
+
+        config = oci.config.from_file()
+        client = oci.object_storage.ObjectStorageClient(config)
+        # AIDP は Delta を <bucket>/delta/... 直下（namespace 接頭辞なし）に書き込むため、
+        # 「namespace 名をパス先頭に持った」旧構成のパスも併せて確認する。
+        base_prefixes = ["delta/", f"{ns}/delta/"]
+        parts = []
+        for sub in (
+            ("Bronze", "delta/airline_sample"),
+            ("Silver", "delta/silver/airline_sample"),
+            ("Gold", "delta/gold/airline_sample_avg"),
+        ):
+            label, relative = sub
+            found = False
+            for base in base_prefixes:
+                prefix = base + relative + "/"
+                listing = client.list_objects(ns, bucket, prefix=prefix).data
+                if listing.prefixes or listing.objects:
+                    found = True
+                    break
+            parts.append(f"{label} `{relative}/` {'✅' if found else '❌'}")
+        detail = " / ".join(parts)
+        mark = "✅" if all("✅" in p for p in parts) else "⚠️"
+        return f"- {mark} Object Storage delta パス（`{bucket}`）: {detail}"
+    except Exception as e:
+        logger.exception("delta path check failed")
+        msg = getattr(e, "message", None) or str(e)
+        return f"- ⚠️ Object Storage delta パス: 確認できませんでした ({str(msg)[:120]})"
+
+
 def _health_all() -> str:
     lines = ["# ヘルスチェック結果", ""]
 
-    def _check_db(label: str, conn_env: str, wallet_env: str) -> None:
+    def _check_db(label: str, conn_env: str, wallet_env: str, owner: str = "", table: str = "") -> None:
         try:
             with _connect_admin(conn_env, wallet_env) as conn:
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1 FROM DUAL")
                     cur.fetchone()
-            lines.append(f"- ✅ {label}: 接続 OK")
+                    if owner and table:
+                        cur.execute(
+                            "SELECT COUNT(*) FROM ALL_TABLES WHERE OWNER = :o AND TABLE_NAME = :t",
+                            {"o": owner, "t": table},
+                        )
+                        if cur.fetchone()[0]:
+                            cur.execute(f"SELECT COUNT(*) FROM {owner}.{table}")
+                            rows = cur.fetchone()[0]
+                            lines.append(f"- ✅ {label}: 接続 OK / {owner}.{table} = {rows} 件")
+                        else:
+                            lines.append(
+                                f"- ✅ {label}: 接続 OK / {owner}.{table} 未作成"
+                                "（「Lab DB 初期化」タブで実行）"
+                            )
+                    else:
+                        lines.append(f"- ✅ {label}: 接続 OK")
         except Exception as e:
             lines.append(f"- ❌ {label}: 接続失敗 ({str(e)[:200]})")
 
-    _check_db("ATP (ADMIN)", "ORACLE_26AI_CONNECTION_STRING", "WALLET_ATP_DIR")
-    _check_db("AI Lakehouse (ADMIN)", "ORACLE_LAKEHOUSE_CONNECTION_STRING", "WALLET_LH_DIR")
+    _check_db(
+        "ATP (ADMIN)",
+        "ORACLE_26AI_CONNECTION_STRING",
+        "WALLET_ATP_DIR",
+        _env("SOURCE_SCHEMA_USER", "SOURCE_01").upper(),
+        _SAMPLE_TABLE,
+    )
+    _check_db(
+        "AI Lakehouse (ADMIN)",
+        "ORACLE_LAKEHOUSE_CONNECTION_STRING",
+        "WALLET_LH_DIR",
+        _env("GOLD_SCHEMA_USER", "GOLD_01").upper(),
+        _GOLD_TABLE,
+    )
 
     src_pw = _env_or("SOURCE_SCHEMA_PASSWORD")
     if src_pw:
@@ -594,6 +900,7 @@ def _health_all() -> str:
     else:
         lines.append("- ⚠️ OAC: base URL 未設定のためスキップ（「OAC 接続」タブで設定）")
 
+    lines.append(_check_delta_paths())
     lines.append("")
     lines.append(f"- {_check_aidp_status().splitlines()[0]}")
     return "\n".join(lines)
