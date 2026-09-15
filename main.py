@@ -39,6 +39,7 @@ from utils.lab_setup_util import (
     build_lab_db_setup_tab,
     build_oac_setup_tab,
 )
+from utils.notebook_code_util import build_notebook_code_tab
 from utils.vpd_util import OracleConnectionParts, parse_oracle_connection_string
 
 # Suppress NumPy warnings related to longdouble
@@ -204,6 +205,9 @@ with gr.Blocks(
 
         with gr.TabItem(label="AIDP 設定ガイド") as aidp_guide_tab:
             build_aidp_guide_tab()
+
+        with gr.TabItem(label="AIDP Notebook コード") as notebook_code_tab:
+            build_notebook_code_tab()
 
         with gr.TabItem(label="OAC 接続") as oac_tab:
             build_oac_setup_tab()

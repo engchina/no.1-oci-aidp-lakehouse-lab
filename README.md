@@ -55,10 +55,12 @@ Compute 上で動作する **Gradio 設定コンソール**からワンクリッ
 ### Terraform では自動化できないもの（Gradio コンソールが担当）
 
 - DB 内のユーザー（`source_01` / `gold_01`）作成・権限付与・REST（ORDS）有効化
-- サンプル航空会社データ 25 件の読込
+- サンプル航空会社データ 25 件の読込 + `SELECT *` プレビュー
+- Gold テーブル `GOLD_01.AIRLINE_SAMPLE_GOLD` の作成（幂等）
 - AIDP ポリシー追加（Standard / Enable object deletion）→ コンソールガイド
 - AIDP での external catalog / medallion schema / LLM 設定（コンソール上の手動作業）
-- OAC へのデータ接続作成（REST API 経由の実験的自動化 + 手動手順ガイド）
+- AIDP Notebook に貼り付けるコード（Bronze/Silver/Gold/LLM/INSERT）を環境値反映で生成
+- OAC へのデータ接続作成（REST API 経由の実験的自動化 + Task 2〜6 の手動手順ガイド）
 
 ---
 
@@ -72,7 +74,7 @@ Compute 上で動作する **Gradio 設定コンソール**からワンクリッ
 |---|---|---|
 | ① 実行前 | compartment / VCN + サブネット / バケット / IDCS トークン / deploy key PAR URL（下記 5 項目） | OCI コンソール |
 | ② 実行 | Stack デプロイ。ATP / AI Lakehouse / KMS vault・secret / AIDP / OAC / Compute を自動作成 | Resource Manager |
-| ③ 実行後 | Outputs 確認 → AIDP ポリシー追加 → Gradio コンソール（DB 初期化 / ガイド / OAC 接続 / ヘルスチェック）→ AIDP notebook → OAC ダッシュボード | OCI コンソール + Gradio + AIDP Workbench |
+| ③ 実行後 | Outputs 確認 → AIDP ポリシー追加 → Gradio コンソール（DB 初期化 / ガイド / Notebook コード / OAC 接続 / ヘルスチェック）→ AIDP notebook → OAC ダッシュボード | OCI コンソール + Gradio + AIDP Workbench |
 
 ## ① Terraform 実行前: 手動事前準備（5 項目）
 
@@ -109,10 +111,11 @@ Resource Manager のデプロイ**前**に、以下の 5 項目を手動で用�
    - Optional policies から `Enable object deletion` も追加（バケットへの Delta 書き込みに必要）
    - 詳細は Gradio の「AIDP 設定ガイド」Tab 手順 1 を参照
 3. **Gradio コンソール**（`app_url`）を開き、ADMIN でログイン（パスワードはフォームの `app_admin_password`）
-   1. 「Lab DB 初期化」: `source_01` / `gold_01` を作成 → サンプルデータ読込
-   2. 「AIDP 設定ガイド」: external catalog → medallion → LLM 設定 を順次実施（値はコピー用に表示）
-   3. 「OAC 接続」: OAC Personal Access Token を入力して接続を作成（または UI で手動）
-   4. 「ヘルスチェック」: 各リソースの疎通確認
+   1. 「Lab DB 初期化」: `source_01` / `gold_01` を作成 → サンプルデータ読込 → Gold テーブル作成
+   2. 「AIDP 設定ガイド」: external catalog（ATP / ADW）→ LLM 設定 → catalog リフレッシュ を順次実施（値はコピー用に表示）
+   3. 「AIDP Notebook コード」: 環境値を反映したコードをタスクごとにコピーし、AIDP notebook で順に実行
+   4. 「OAC 接続」: OAC Personal Access Token を入力して接続を作成（または UI で手動）→ Task 2〜6 のガイドに従い dataset / ワークブック / OAC Assistant を作成
+   5. 「ヘルスチェック」: 各リソースの疎通 + 表行数 + bucket の delta/ パス確認
 4. **AIDP の notebook** で後編 Step3（OAC ダッシュボード作成）まで進める
 
 ## ローカル開発
@@ -149,6 +152,8 @@ pip install -r requirements.txt
 | `WALLET_ATP_DIR` / `WALLET_LH_DIR` | ウォレット展開先（`/u01/aipoc/wallets/{atp,lh}`） |
 | `AIDP_OCID` / `OAC_NAME` / `BUCKET_NAME` | 各リソースの識別子 |
 | `SOURCE_SCHEMA_PASSWORD` / `GOLD_SCHEMA_PASSWORD` | 「Lab DB 初期化」で保存 |
+| `OCI_NAMESPACE` / `BUCKET_NAME` | AIDP の Delta 保存先（ガイド / Notebook コード / ヘルスチェックで使用） |
+| `AIDP_LLM_MODEL` | AIDP LLM 設定で登録したモデル名（既定 `xai.grok-4`） |
 | `APP_ADMIN_PASSWORD` | Web UI ログインパスワード |
 
 ## ファイル構成
@@ -157,7 +162,8 @@ pip install -r requirements.txt
 ├── terraform/stack/          # RM stack（schema.yaml フォーム付き）
 ├── main.py                   # Gradio アプリのエントリポイント
 ├── utils/                    # UI 各タブ（No.1-SQL-Assist から移植 + lab 固有）
-│   └── lab_setup_util.py     # Lab DB 初期化 / AIDP ガイド / OAC 接続 / ヘルスチェック
+│   ├── lab_setup_util.py     # Lab DB 初期化 / AIDP ガイド / OAC 接続 / ヘルスチェック
+│   └── notebook_code_util.py # AIDP Notebook 用コード生成（環境値反映・タスク別コピー）
 ├── init_script.sh            # Compute 初回起動: 依存パッケージ + .env 生成 + 起動
 ├── main.sh / restart.sh      # アプリ起動・再起動
 ├── application_port.sh       # ポート解決（props/application_port.txt、既定 8080）
@@ -172,8 +178,8 @@ pip install -r requirements.txt
 - AIDP の `policies` は Terraform リソースが露出していないため、コンソールでの手動追加が必須。
 - OAC のインスタンス URL はリージョンコードの形式が環境により異なるため自動計算せず、Outputs はインスタンス名のみ出力。
 - OAC 接続作成 API（`POST /api/public/connections`）は実験的であり、OAC バージョンにより形式が異なる場合がある（失敗時は UI で手動）。
-- OAC の dataset / ダッシュボード作成は UI 操作（後編 Step3）。
-- AIDP の notebook 系操作（external catalog の notebook 実行、medallion 加工、Gold 書き出し）は Workbench 上での手作業。
+- OAC の dataset / ダッシュボード作成は UI 操作（後編 Step3）。「OAC 接続」タブに Task 2〜6 の完全手順 + OAC Assistant サンプル質問を掲載。
+- AIDP の notebook 系操作（Bronze / Silver / Gold 加工、Gold 書き出し）は Workbench 上での手作業。「AIDP Notebook コード」タブが環境値を反映したコードをタスク別に提供。
 
 ## 開発規約
 
