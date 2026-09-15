@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  CI:
+    name: CI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.7"
+
+      # .tf ファイルが存在しないリポジトリ初期段階でも成功するように、
+      # 各対象が空の場合はスキップする。
+      - name: Terraform format check
+        run: |
+          if find . -name '*.tf' -not -path './.terraform/*' -not -path './.git/*' | grep -q .; then
+            terraform fmt -check -recursive
+          else
+            echo "Terraform ファイルが見つからないためスキップします。"
+          fi
+
+      - name: Terraform init and validate
+        run: |
+          dirs=$(find . -name '*.tf' -not -path './.terraform/*' -not -path './.git/*' -exec dirname {} \; | sort -u)
+          if [ -n "$dirs" ]; then
+            for d in $dirs; do
+              echo "::group::$d を validate します"
+              (cd "$d" && terraform init -backend=false -input=false && terraform validate)
+              echo "::endgroup::"
+            done
+          else
+            echo "Terraform ファイルが見つからないためスキップします。"
+          fi
+
+      - name: Shell syntax check
+        run: |
+          sh_files=$(find . -name '*.sh' -not -path './.git/*')
+          if [ -n "$sh_files" ]; then
+            for f in $sh_files; do
+              bash -n "$f"
+            done
+            echo "Shell スクリプトの構文チェックに合格しました。"
+          else
+            echo "Shell スクリプトが見つからないためスキップします。"
+          fi
