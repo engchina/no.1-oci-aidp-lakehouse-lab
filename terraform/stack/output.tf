@@ -26,7 +26,7 @@ output "lakehouse_db_ocid" {
 
 output "aidp_instance_ocid" {
   description = "AIDP Workbench インスタンス OCID。コンソール: https://aidp.oci.oraclecloud.com/?ocid=<この値>"
-  value       = oci_ai_data_platform_ai_data_platform.lab.id
+  value       = oci_ai_data_platform_ai_data_platform.aidp.id
 }
 
 output "oac_instance_name" {
@@ -34,17 +34,17 @@ output "oac_instance_name" {
   value       = var.oac_name
 }
 
-output "application_url" {
+output "app_url" {
   description = "Gradio 設定アプリのURL（パブリックサブネットの場合）"
-  value       = "http://${local.instance_access_ip}:${var.application_port}"
+  value       = "http://${local.compute_access_ip}:${var.app_port}"
 }
 
 output "ssh_to_instance" {
   description = "Compute インスタンスへの SSH コマンド"
-  value       = "ssh -o ServerAliveInterval=10 ubuntu@${oci_core_instance.lab_instance.public_ip}"
+  value       = "ssh -o ServerAliveInterval=10 ubuntu@${oci_core_instance.compute.public_ip}"
 }
 
 output "object_storage_bucket" {
   description = "AIDP Delta データ保存バケット名（namespace はコンソールで確認）"
-  value       = var.bucket_name
+  value       = var.os_bucket_name
 }

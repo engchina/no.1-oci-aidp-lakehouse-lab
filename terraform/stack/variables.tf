@@ -1,6 +1,22 @@
 # =============================================================
-# 共通（事前に手動作成したリソースの参照情報）
+# 変数名の命名規則（このスタック全体に統一）:
+#   <service prefix>_<attribute>
+#   - 共通環境変数: region / compartment_ocid 等（接頭辞なし）
+#   - atp_*      : ATP（OLTP・ソースシステム）
+#   - lakehouse_*: Autonomous AI Lakehouse
+#   - adb_*      : 両 ADB に共通の設定
+#   - aidp_*     : AI Data Platform Workbench
+#   - oac_*      : Oracle Analytics Cloud
+#   - os_*       : Object Storage（事前手動作成のバケット参照）
+#   - compute_*  : Compute インスタンス
+#   - app_*      : Gradio 設定アプリ
+# 表示名デフォルトは "aidp-lab-" プレフィックスで統一し、
+# lab 由来のリソースを tenancy 内で識別可能にする。
 # =============================================================
+
+# ------------------------------------------------------------
+# 共通（事前に手動作成したリソースの参照情報）
+# ------------------------------------------------------------
 
 variable "region" {
   description = "リージョン名（例: us-chicago-1）。Resource Manager が自動入力します。"
@@ -38,9 +54,9 @@ variable "ssh_authorized_keys" {
   default     = ""
 }
 
-# =============================================================
-# ATP（OLTP・ソースシステム）
-# =============================================================
+# ------------------------------------------------------------
+# atp_* : ATP（OLTP・ソースシステム）
+# ------------------------------------------------------------
 
 variable "atp_name" {
   description = "ATP のデータベース名（大文字英数・アンダースコア、先頭は英字、14文字以内）"
@@ -56,7 +72,7 @@ variable "atp_name" {
 variable "atp_display_name" {
   description = "ATP の表示名"
   type        = string
-  default     = "airline-source-atp"
+  default     = "aidp-lab-atp"
 }
 
 variable "atp_password" {
@@ -83,9 +99,9 @@ variable "atp_data_storage_size_in_tbs" {
   default     = 0.05
 }
 
-# =============================================================
-# Autonomous AI Lakehouse（AIDP のベクトル DB / Gold 格納先）
-# =============================================================
+# ------------------------------------------------------------
+# lakehouse_* : Autonomous AI Lakehouse（AIDP のベクトル DB / Gold 格納先）
+# ------------------------------------------------------------
 
 variable "lakehouse_name" {
   description = "AI Lakehouse のデータベース名"
@@ -101,7 +117,7 @@ variable "lakehouse_name" {
 variable "lakehouse_display_name" {
   description = "AI Lakehouse の表示名"
   type        = string
-  default     = "aidp-db"
+  default     = "aidp-lab-lakehouse"
 }
 
 variable "lakehouse_password" {
@@ -128,47 +144,51 @@ variable "lakehouse_data_storage_size_in_tbs" {
   default     = 0.05
 }
 
-variable "db_backup_retention_period_in_days" {
+# ------------------------------------------------------------
+# adb_* : 両 ADB に共通の設定
+# ------------------------------------------------------------
+
+variable "adb_backup_retention_period_in_days" {
   description = "両 ADB の自動バックアップ保持日数"
   type        = number
   default     = 1
 }
 
-variable "license_model" {
+variable "adb_license_model" {
   description = "ADB ライセンス種別"
   type        = string
   default     = "LICENSE_INCLUDED"
 
   validation {
-    condition     = contains(["LICENSE_INCLUDED", "BRING_YOUR_OWN_LICENSE"], var.license_model)
-    error_message = "license_model は LICENSE_INCLUDED または BRING_YOUR_OWN_LICENSE です。"
+    condition     = contains(["LICENSE_INCLUDED", "BRING_YOUR_OWN_LICENSE"], var.adb_license_model)
+    error_message = "adb_license_model は LICENSE_INCLUDED または BRING_YOUR_OWN_LICENSE です。"
   }
 }
 
-# =============================================================
-# AI Data Platform（AIDP Workbench）
-# =============================================================
+# ------------------------------------------------------------
+# aidp_* : AI Data Platform（AIDP Workbench）
+# ------------------------------------------------------------
 
 variable "aidp_display_name" {
   description = "AIDP インスタンスの表示名"
   type        = string
-  default     = "aidp-test"
+  default     = "aidp-lab-workbench"
 }
 
 variable "aidp_workspace_name" {
   description = "AIDP デフォルトワークスペース名（小文字英数・ダッシュ）"
   type        = string
-  default     = "aidp-workspace"
+  default     = "aidp-lab-workspace"
 }
 
-# =============================================================
-# Oracle Analytics Cloud（OAC）
-# =============================================================
+# ------------------------------------------------------------
+# oac_* : Oracle Analytics Cloud
+# ------------------------------------------------------------
 
 variable "oac_name" {
   description = "OAC インスタンス名（テナント内一意、先頭英字、英数字とダッシュのみ。後から変更不可）"
   type        = string
-  default     = "aidpoac01"
+  default     = "aidp-lab-oac"
 
   validation {
     condition     = can(regex("^[a-z][a-z0-9-]{0,62}$", var.oac_name))
@@ -183,91 +203,95 @@ variable "oac_idcs_access_token" {
   default     = ""
 }
 
-variable "oac_capacity_users" {
-  description = "OAC のユーザー数キャパシティ"
+variable "oac_user_count" {
+  description = "OAC のユーザー数キャパシティ（capacity_type=USER_COUNT）"
   type        = number
   default     = 2
 }
 
-# =============================================================
-# Object Storage（事前手動作成のバケットを参照）
-# =============================================================
+# ------------------------------------------------------------
+# os_* : Object Storage（事前手動作成のバケットを参照）
+# ------------------------------------------------------------
 
-variable "bucket_name" {
+variable "os_bucket_name" {
   description = "AIDP の Delta データ保存先用バケット名（事前手動作成）"
   type        = string
-  default     = "aidp-demo-bucket_01"
+  default     = "aidp-lab-bucket_01"
 }
 
-# =============================================================
-# Compute（Gradio 設定アプリ）
-# =============================================================
+# ------------------------------------------------------------
+# compute_* : Compute（Gradio 設定アプリのホスト）
+# ------------------------------------------------------------
 
-variable "instance_display_name" {
+variable "compute_display_name" {
   description = "Compute インスタンス名"
   type        = string
-  default     = "aidp-lab-instance"
+  default     = "aidp-lab-compute"
 }
 
-variable "instance_image_source_id" {
+variable "compute_image_id" {
   description = "Compute OS イメージ（リージョンに応じて選択）"
   type        = string
   default     = "ocid1.image.oc1.ap-osaka-1.aaaaaaaa7sbmd5q54w466eojxqwqfvvp554awzjpt2behuwsiefrxnwomq5a"
 }
 
-variable "instance_shape" {
+variable "compute_shape" {
   description = "Compute シェイプ"
   type        = string
   default     = "VM.Standard.E4.Flex"
 
   validation {
-    condition     = contains(["VM.Standard.E4.Flex", "VM.Standard.E5.Flex"], var.instance_shape)
-    error_message = "instance_shape は VM.Standard.E4.Flex または VM.Standard.E5.Flex です。"
+    condition     = contains(["VM.Standard.E4.Flex", "VM.Standard.E5.Flex"], var.compute_shape)
+    error_message = "compute_shape は VM.Standard.E4.Flex または VM.Standard.E5.Flex です。"
   }
 }
 
-variable "instance_flex_shape_ocpus" {
+variable "compute_ocpus" {
   description = "Compute OCPU 数"
   type        = number
   default     = 2
 }
 
-variable "instance_flex_shape_memory" {
+variable "compute_memory_gb" {
   description = "Compute メモリ（GB）"
   type        = number
   default     = 16
 }
 
-variable "instance_boot_volume_size" {
+variable "compute_boot_volume_gb" {
   description = "Compute ブートボリューム（GB）"
   type        = number
   default     = 100
 }
 
-variable "instance_boot_volume_vpus" {
+variable "compute_boot_volume_vpus" {
   description = "Compute ブートボリューム VPUs/GB（10=Balanced）"
   type        = number
   default     = 10
 }
 
-variable "application_port" {
+# ------------------------------------------------------------
+# app_* : Gradio 設定アプリ
+# ------------------------------------------------------------
+
+variable "app_port" {
   description = "Gradio アプリ公開ポート"
   type        = number
   default     = 8080
 
   validation {
-    condition     = var.application_port >= 1 && var.application_port <= 65535
-    error_message = "application_port は 1〜65535 です。"
+    condition     = var.app_port >= 1 && var.app_port <= 65535
+    error_message = "app_port は 1〜65535 です。"
   }
 }
 
-variable "application_git_tag" {
+variable "app_git_ref" {
   description = "デプロイする Git ref（本リポジトリのブランチ・タグ・SHA）"
   type        = string
   default     = "main"
 }
 
-variable "github_deploy_key_url" {
+variable "app_github_deploy_key_url" {
   description = "本リポジトリ用 GitHub Deploy Key（秘密鍵）の Object Storage 事前認証リクエストURL（PAR URL）"
   type        = string
   sensitive   = true

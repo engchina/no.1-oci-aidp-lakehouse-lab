@@ -62,7 +62,7 @@ write_files:
 
   - path: "/u01/aipoc/props/bucket_name.txt"
     permissions: "0644"
-    content: ${bucket_name}
+    content: ${os_bucket_name}
 
   - path: "/u01/aipoc/props/wallet_atp.zip"
     permissions: "0644"
@@ -85,14 +85,14 @@ write_files:
   - path: "/u01/aipoc/props/application_port.txt"
     permissions: "0644"
     content: |
-      ${application_port}
+      ${app_port}
 
   - path: "/u01/aipoc/props/github_deploy_key_url.txt"
     permissions: "0644"
-    content: ${github_deploy_key_url}
+    content: ${app_github_deploy_key_url}
 
 runcmd:
-  - iptables -I INPUT 6 -m state --state NEW -p tcp --dport ${application_port} -j ACCEPT
+  - iptables -I INPUT 6 -m state --state NEW -p tcp --dport ${app_port} -j ACCEPT
   - netfilter-persistent save
   - echo "Downloading and running init script..."
   - cd /u01/aipoc
@@ -110,7 +110,7 @@ runcmd:
       UserKnownHostsFile=/dev/null
     EOF
   - chmod 600 /root/.ssh/config
-  - GIT_SSH_COMMAND="ssh -i /root/.ssh/github_deploy_key -o StrictHostKeyChecking=no" git clone --branch ${application_git_tag} --single-branch git@github.com:engchina/no.1-oci-aidp-lakehouse-lab.git
+  - GIT_SSH_COMMAND="ssh -i /root/.ssh/github_deploy_key -o StrictHostKeyChecking=no" git clone --branch ${app_git_ref} --single-branch git@github.com:engchina/no.1-oci-aidp-lakehouse-lab.git
   - cd /u01/aipoc/no.1-oci-aidp-lakehouse-lab
   - chmod +x init_script.sh
   - nohup bash init_script.sh >> /var/log/cloud-init-custom.log 2>&1 &

@@ -4,7 +4,7 @@
 title: "Deploy OCI AI Data Platform Lab (ATP + AI Lakehouse + AIDP + OAC + Gradio console)"
 stackDescription: "One-click lab for OCI AI Data Platform: creates ATP (OLTP), Autonomous AI Lakehouse, AIDP Workbench, OAC, and a Compute instance running a Gradio setup console that automates the parts Terraform cannot."
 schemaVersion: 1.1.0
-version: "20251201"
+version: "20260915"
 locale: "en"
 
 variableGroups:
@@ -24,7 +24,6 @@ variableGroups:
       - atp_password
       - atp_compute_count
       - atp_data_storage_size_in_tbs
-      - license_model
 
   - title: Autonomous AI Lakehouse
     visible: true
@@ -34,6 +33,8 @@ variableGroups:
       - lakehouse_password
       - lakehouse_compute_count
       - lakehouse_data_storage_size_in_tbs
+      - adb_backup_retention_period_in_days
+      - adb_license_model
 
   - title: AI Data Platform
     visible: true
@@ -46,28 +47,28 @@ variableGroups:
     variables:
       - oac_name
       - oac_idcs_access_token
-      - oac_capacity_users
+      - oac_user_count
 
   - title: Object Storage (pre-created)
     visible: true
     variables:
-      - bucket_name
+      - os_bucket_name
 
   - title: Compute (Gradio console)
     visible: true
     variables:
-      - instance_display_name
-      - instance_image_source_id
-      - instance_shape
-      - instance_flex_shape_ocpus
-      - instance_flex_shape_memory
-      - instance_boot_volume_size
-      - instance_boot_volume_vpus
+      - compute_display_name
+      - compute_image_id
+      - compute_shape
+      - compute_ocpus
+      - compute_memory_gb
+      - compute_boot_volume_gb
+      - compute_boot_volume_vpus
       - subnet_id
       - ssh_authorized_keys
-      - application_port
-      - application_git_tag
-      - github_deploy_key_url
+      - app_port
+      - app_git_ref
+      - app_github_deploy_key_url
       - app_admin_password
 
 variables:
@@ -113,7 +114,7 @@ variables:
     required: true
     visible: true
     title: "ATP display name"
-    default: "airline-source-atp"
+    default: "aidp-lab-atp"
 
   atp_password:
     type: password
@@ -138,16 +139,6 @@ variables:
     title: "ATP storage (TB)"
     default: 0.05
 
-  license_model:
-    type: enum
-    required: true
-    visible: true
-    title: "ADB license"
-    enum:
-      - "LICENSE_INCLUDED"
-      - "BRING_YOUR_OWN_LICENSE"
-    default: "LICENSE_INCLUDED"
-
   lakehouse_name:
     type: string
     required: true
@@ -160,7 +151,7 @@ variables:
     required: true
     visible: true
     title: "AI Lakehouse display name"
-    default: "aidp-db"
+    default: "aidp-lab-lakehouse"
 
   lakehouse_password:
     type: password
@@ -185,19 +176,36 @@ variables:
     title: "AI Lakehouse storage (TB)"
     default: 0.05
 
+  adb_backup_retention_period_in_days:
+    type: number
+    required: true
+    visible: true
+    title: "ADB backup retention (days)"
+    default: 1
+
+  adb_license_model:
+    type: enum
+    required: true
+    visible: true
+    title: "ADB license"
+    enum:
+      - "LICENSE_INCLUDED"
+      - "BRING_YOUR_OWN_LICENSE"
+    default: "LICENSE_INCLUDED"
+
   aidp_display_name:
     type: string
     required: true
     visible: true
     title: "AIDP instance display name"
-    default: "aidp-test"
+    default: "aidp-lab-workbench"
 
   aidp_workspace_name:
     type: string
     required: true
     visible: true
     title: "AIDP default workspace name"
-    default: "aidp-workspace"
+    default: "aidp-lab-workspace"
 
   oac_name:
     type: string
@@ -205,7 +213,7 @@ variables:
     visible: true
     title: "OAC instance name"
     description: "Must be unique in the tenancy. Cannot be changed after creation."
-    default: "aidpoac01"
+    default: "aidp-lab-oac"
 
   oac_idcs_access_token:
     type: password
@@ -214,29 +222,29 @@ variables:
     title: "OAC IDCS access token"
     description: "Generate under Identity and Security > Identity Domains > default > Users > (your user) > Access Tokens, then paste it here. Required to create the OAC instance via Terraform."
 
-  oac_capacity_users:
+  oac_user_count:
     type: number
     required: true
     visible: true
     title: "OAC user capacity"
     default: 2
 
-  bucket_name:
+  os_bucket_name:
     type: string
     required: true
     visible: true
     title: "Object Storage bucket name (pre-created)"
     description: "Existing bucket that AIDP will use for Delta data (delta/ prefix). Create it manually beforehand."
-    default: "aidp-demo-bucket_01"
+    default: "aidp-lab-bucket_01"
 
-  instance_display_name:
+  compute_display_name:
     type: string
     required: true
     visible: true
     title: "Compute instance name"
-    default: "aidp-lab-instance"
+    default: "aidp-lab-compute"
 
-  instance_image_source_id:
+  compute_image_id:
     type: oci:core:image:id
     required: true
     visible: true
@@ -245,7 +253,7 @@ variables:
     dependsOn:
       compartmentId: ${compartment_ocid}
 
-  instance_shape:
+  compute_shape:
     type: enum
     required: true
     visible: true
@@ -255,28 +263,28 @@ variables:
       - "VM.Standard.E5.Flex"
     default: "VM.Standard.E4.Flex"
 
-  instance_flex_shape_ocpus:
+  compute_ocpus:
     type: number
     required: true
     visible: true
     title: "Compute OCPUs"
     default: 2
 
-  instance_flex_shape_memory:
+  compute_memory_gb:
     type: number
     required: true
     visible: true
     title: "Compute memory (GB)"
     default: 16
 
-  instance_boot_volume_size:
+  compute_boot_volume_gb:
     type: number
     required: true
     visible: true
     title: "Boot volume size (GB)"
     default: 100
 
-  instance_boot_volume_vpus:
+  compute_boot_volume_vpus:
     type: number
     required: true
     visible: true
@@ -300,21 +308,21 @@ variables:
     title: "SSH authorized keys"
     description: "Paste your SSH public key."
 
-  application_port:
+  app_port:
     type: number
     required: true
     visible: true
     title: "Gradio application port"
     default: 8080
 
-  application_git_tag:
+  app_git_ref:
     type: string
     required: true
     visible: true
     title: "Application Git ref"
     default: "main"
 
-  github_deploy_key_url:
+  app_github_deploy_key_url:
     type: string
     required: true
     visible: true

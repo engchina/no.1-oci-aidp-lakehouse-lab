@@ -5,9 +5,9 @@ locals {
     false,
   )
 
-  instance_access_ip = local.compute_subnet_prohibits_public_ip ? (
-    oci_core_instance.lab_instance.private_ip
+  compute_access_ip = local.compute_subnet_prohibits_public_ip ? (
+    oci_core_instance.compute.private_ip
     ) : (
-    oci_core_instance.lab_instance.public_ip
+    oci_core_instance.compute.public_ip
   )
 }

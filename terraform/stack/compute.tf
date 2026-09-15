@@ -5,7 +5,7 @@
 # 依存パッケージのインストール・アプリ起動まで行う。
 # =============================================================
 
-resource "oci_core_instance" "lab_instance" {
+resource "oci_core_instance" "compute" {
   depends_on = [
     oci_database_autonomous_database.atp,
     oci_database_autonomous_database.lakehouse,
@@ -27,7 +27,7 @@ resource "oci_core_instance" "lab_instance" {
     assign_public_ip          = !local.compute_subnet_prohibits_public_ip
     subnet_id                 = var.subnet_id
   }
-  display_name = var.instance_display_name
+  display_name = var.compute_display_name
   instance_options {
     are_legacy_imds_endpoints_disabled = "false"
   }
@@ -39,16 +39,16 @@ resource "oci_core_instance" "lab_instance" {
     is_symmetric_multi_threading_enabled = "true"
     type                                 = "AMD_VM"
   }
-  shape = var.instance_shape
+  shape = var.compute_shape
   shape_config {
     baseline_ocpu_utilization = "BASELINE_1_1"
-    memory_in_gbs             = var.instance_flex_shape_memory
-    ocpus                     = var.instance_flex_shape_ocpus
+    memory_in_gbs             = var.compute_memory_gb
+    ocpus                     = var.compute_ocpus
   }
   source_details {
-    boot_volume_size_in_gbs = var.instance_boot_volume_size
-    boot_volume_vpus_per_gb = var.instance_boot_volume_vpus
-    source_id               = var.instance_image_source_id
+    boot_volume_size_in_gbs = var.compute_boot_volume_gb
+    boot_volume_vpus_per_gb = var.compute_boot_volume_vpus
+    source_id               = var.compute_image_id
     source_type             = "image"
   }
 
