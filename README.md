@@ -62,21 +62,32 @@ Compute 上で動作する **Gradio 設定コンソール**からワンクリッ
 
 ---
 
-## 事前準備（手動）
+## 全体フロー（フェーズ構成）
 
-Resource Manager のデプロイ**前**に以下の手動準備が必要です。
+```
+① Terraform 実行前（手動）  →  ② Terraform 実行（RM デプロイ）  →  ③ Terraform 実行後（手動 + コンソール）
+```
+
+| フェーズ | やること | どこでするか |
+|---|---|---|
+| ① 実行前 | compartment / VCN + サブネット / バケット / IDCS トークン / deploy key PAR URL（下記 5 項目） | OCI コンソール |
+| ② 実行 | Stack デプロイ。ATP / AI Lakehouse / KMS vault・secret / AIDP / OAC / Compute を自動作成 | Resource Manager |
+| ③ 実行後 | Outputs 確認 → AIDP ポリシー追加 → Gradio コンソール（DB 初期化 / ガイド / OAC 接続 / ヘルスチェック）→ AIDP notebook → OAC ダッシュボード | OCI コンソール + Gradio + AIDP Workbench |
+
+## ① Terraform 実行前: 手動事前準備（5 項目）
+
+Resource Manager のデプロイ**前**に、以下の 5 項目を手動で用意してください。
 
 1. **Compartment** の作成（`compartment_ocid` 用）
 2. **VCN + Compute サブネット**（パブリックサブネット推奨。コンソールに外部からアクセスする場合）
 3. **Object Storage バケット**の事前作成（AIDP の Delta データ保存先。既定名 `aidp-lab-bucket_01`）
-4. **AIDP 標準ポリシー** — AIDP インスタンス作成後にコンソールで追加（Gradio の「AIDP 設定ガイド」Tab 手順 1）
-5. **OAC の IDCS アクセストークン** — Identity and Security → Identity Domains → default → Users →（自分のユーザー）→ Access Tokens で生成し、デプロイフォームに貼り付け
-6. **GitHub deploy key（秘密鍵）の Object Storage 事前認証リクエスト（PAR URL）**
+4. **OAC の IDCS アクセストークン** — Identity and Security → Identity Domains → default → Users →（自分のユーザー）→ Access Tokens で生成し、デプロイフォームに貼り付け
+5. **GitHub deploy key（秘密鍵）の Object Storage 事前認証リクエスト（PAR URL）**
    - 本リポジトリに deploy key（読み取り専用で可）を登録し、秘密鍵を Object Storage にアップロード
    - 事前認証リクエスト URL をフォームの `app_github_deploy_key_url` に入力
    - Compute 上で `git clone git@github.com:engchina/no.1-oci-aidp-lakehouse-lab.git` するための鍵
 
-## デプロイ手順
+## ② Terraform 実行: Resource Manager デプロイ手順
 
 1. [Resource Manager](https://cloud.oracle.com/iaas/stacks) → Stack → Create stack → **Import stack (from template)**
 2. 本リポジトリを指向:
@@ -84,18 +95,25 @@ Resource Manager のデプロイ**前**に以下の手動準備が必要です�
    - 相対パス: `terraform/stack`
 3. フォームに入力（パスワード類は 12〜30 文字・英大文字・英小文字・数字を含む、`admin` 不得、`"` 不得）
 4. Stack をデプロイ。AIDP の作成には 20〜40 分程度かかる場合があります（Work Request 待ち）
-5. Outputs を確認:
+
+## ③ Terraform 実行後: 順次実施
+
+1. **Outputs を確認**
    - `atp_connection_string` / `lakehouse_connection_string`（ADMIN 接続文字列）
    - `aidp_instance_ocid` → `https://aidp.oci.oraclecloud.com/?ocid=<この値>`
    - `oac_instance_name` → OAC の URL は OCI コンソールの「アナリティクス・クラウド」から確認
    - `app_url` → Gradio 設定コンソールの URL
    - `ssh_to_instance` → 障害切り分け用
-6. **Gradio コンソール**（`app_url`）を開き、ADMIN でログイン（パスワードはフォームの `app_admin_password`）
+2. **AIDP 標準ポリシーを手動追加**（AIDP インスタンスが作成されてから可能。Terraform は `policies` を設定できないため）
+   - AIDP コンソール → インスタンス → Add policies → `Standard` を追加
+   - Optional policies から `Enable object deletion` も追加（バケットへの Delta 書き込みに必要）
+   - 詳細は Gradio の「AIDP 設定ガイド」Tab 手順 1 を参照
+3. **Gradio コンソール**（`app_url`）を開き、ADMIN でログイン（パスワードはフォームの `app_admin_password`）
    1. 「Lab DB 初期化」: `source_01` / `gold_01` を作成 → サンプルデータ読込
-   2. 「AIDP 設定ガイド」: ポリシー追加 → external catalog → medallion → LLM 設定 を順次実施（値はコピー用に表示）
+   2. 「AIDP 設定ガイド」: external catalog → medallion → LLM 設定 を順次実施（値はコピー用に表示）
    3. 「OAC 接続」: OAC Personal Access Token を入力して接続を作成（または UI で手動）
    4. 「ヘルスチェック」: 各リソースの疎通確認
-7. AIDP の notebook で後編 Step3（OAC ダッシュボード作成）まで進める
+4. **AIDP の notebook** で後編 Step3（OAC ダッシュボード作成）まで進める
 
 ## ローカル開発
 
