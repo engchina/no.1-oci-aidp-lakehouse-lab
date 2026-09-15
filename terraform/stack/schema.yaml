@@ -36,6 +36,13 @@ variableGroups:
       - adb_backup_retention_period_in_days
       - adb_license_model
 
+  - title: Database Network (ATP + Lakehouse)
+    visible: true
+    variables:
+      - adb_network_access_type
+      - adb_whitelisted_ips
+      - adb_subnet_id
+
   - title: AI Data Platform
     visible: true
     variables:
@@ -192,6 +199,41 @@ variables:
       - "LICENSE_INCLUDED"
       - "BRING_YOUR_OWN_LICENSE"
     default: "LICENSE_INCLUDED"
+
+  adb_network_access_type:
+    type: enum
+    required: true
+    visible: true
+    title: "ADB network access type"
+    description: "Network access for both ATP and AI Lakehouse. PUBLIC: secure access from any location (public endpoint, default for this lab). SECURE_ACL: access restricted to the allowed IPs/VCNs you list. PRIVATE: private endpoint only, attached to the subnet you select."
+    enum:
+      - "PUBLIC"
+      - "SECURE_ACL"
+      - "PRIVATE"
+    default: "PUBLIC"
+
+  adb_whitelisted_ips:
+    type: string
+    required: false
+    visible:
+      eq:
+        - adb_network_access_type
+        - "SECURE_ACL"
+    title: "Allowed source IPs / VCNs (for SECURE_ACL)"
+    description: "Comma-separated CIDR blocks (e.g. 10.0.0.0/24) and/or VCN OCIDs (ocid1.vcn.oc1..). Include the CIDR of the Compute subnet if the Gradio console must connect to the databases."
+
+  adb_subnet_id:
+    type: oci:core:subnet:id
+    required: false
+    visible:
+      eq:
+        - adb_network_access_type
+        - "PRIVATE"
+    title: "Private endpoint subnet (for PRIVATE)"
+    description: "Subnet in which the private endpoints of both databases are attached. Use a subnet of the selected VCN (same VCN as the Compute instance is required for private connectivity)."
+    dependsOn:
+      compartmentId: ${compartment_ocid}
+      vcnId: ${vcn_id}
 
   aidp_display_name:
     type: string
