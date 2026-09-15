@@ -7,7 +7,7 @@
 resource "oci_database_autonomous_database" "atp" {
   admin_password                                 = var.atp_password
   autonomous_maintenance_schedule_type           = "REGULAR"
-  backup_retention_period_in_days                = var.db_backup_retention_period_in_days
+  backup_retention_period_in_days                = var.adb_backup_retention_period_in_days
   character_set                                  = "AL32UTF8"
   compartment_id                                 = var.compartment_ocid
   compute_count                                  = var.atp_compute_count
@@ -22,7 +22,7 @@ resource "oci_database_autonomous_database" "atp" {
   is_dedicated                                   = "false"
   is_mtls_connection_required                    = true
   is_preview_version_with_service_terms_accepted = "false"
-  license_model                                  = var.license_model
+  license_model                                  = var.adb_license_model
   ncharacter_set                                 = "AL16UTF16"
   # lab 用途のため既定はパブリックエンドポイント。
   # PRIVATE_ENDPOINT_ONLY / SECURE_ACCESS... にする場合 subnet_id / whitelisted_ips を別途設定する。
@@ -56,7 +56,7 @@ data "external" "atp_wallet_files" {
 resource "oci_database_autonomous_database" "lakehouse" {
   admin_password                                 = var.lakehouse_password
   autonomous_maintenance_schedule_type           = "REGULAR"
-  backup_retention_period_in_days                = var.db_backup_retention_period_in_days
+  backup_retention_period_in_days                = var.adb_backup_retention_period_in_days
   character_set                                  = "AL32UTF8"
   compartment_id                                 = var.compartment_ocid
   compute_count                                  = var.lakehouse_compute_count
@@ -71,7 +71,7 @@ resource "oci_database_autonomous_database" "lakehouse" {
   is_dedicated                                   = "false"
   is_mtls_connection_required                    = true
   is_preview_version_with_service_terms_accepted = "false"
-  license_model                                  = var.license_model
+  license_model                                  = var.adb_license_model
   ncharacter_set                                 = "AL16UTF16"
 }
 

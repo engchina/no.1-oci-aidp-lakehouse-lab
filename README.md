@@ -68,12 +68,12 @@ Resource Manager のデプロイ**前**に以下の手動準備が必要です�
 
 1. **Compartment** の作成（`compartment_ocid` 用）
 2. **VCN + Compute サブネット**（パブリックサブネット推奨。コンソールに外部からアクセスする場合）
-3. **Object Storage バケット**の事前作成（AIDP の Delta データ保存先。既定名 `aidp-demo-bucket_01`）
+3. **Object Storage バケット**の事前作成（AIDP の Delta データ保存先。既定名 `aidp-lab-bucket_01`）
 4. **AIDP 標準ポリシー** — AIDP インスタンス作成後にコンソールで追加（Gradio の「AIDP 設定ガイド」Tab 手順 1）
 5. **OAC の IDCS アクセストークン** — Identity and Security → Identity Domains → default → Users →（自分のユーザー）→ Access Tokens で生成し、デプロイフォームに貼り付け
 6. **GitHub deploy key（秘密鍵）の Object Storage 事前認証リクエスト（PAR URL）**
    - 本リポジトリに deploy key（読み取り専用で可）を登録し、秘密鍵を Object Storage にアップロード
-   - 事前認証リクエスト URL をフォームの `github_deploy_key_url` に入力
+   - 事前認証リクエスト URL をフォームの `app_github_deploy_key_url` に入力
    - Compute 上で `git clone git@github.com:engchina/no.1-oci-aidp-lakehouse-lab.git` するための鍵
 
 ## デプロイ手順
@@ -88,9 +88,9 @@ Resource Manager のデプロイ**前**に以下の手動準備が必要です�
    - `atp_connection_string` / `lakehouse_connection_string`（ADMIN 接続文字列）
    - `aidp_instance_ocid` → `https://aidp.oci.oraclecloud.com/?ocid=<この値>`
    - `oac_instance_name` → OAC の URL は OCI コンソールの「アナリティクス・クラウド」から確認
-   - `application_url` → Gradio 設定コンソールの URL
+   - `app_url` → Gradio 設定コンソールの URL
    - `ssh_to_instance` → 障害切り分け用
-6. **Gradio コンソール**（`application_url`）を開き、ADMIN でログイン（パスワードはフォームの `app_admin_password`）
+6. **Gradio コンソール**（`app_url`）を開き、ADMIN でログイン（パスワードはフォームの `app_admin_password`）
    1. 「Lab DB 初期化」: `source_01` / `gold_01` を作成 → サンプルデータ読込
    2. 「AIDP 設定ガイド」: ポリシー追加 → external catalog → medallion → LLM 設定 を順次実施（値はコピー用に表示）
    3. 「OAC 接続」: OAC Personal Access Token を入力して接続を作成（または UI で手動）

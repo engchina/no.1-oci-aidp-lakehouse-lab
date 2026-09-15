@@ -52,7 +52,7 @@ resource "oci_vault_secret" "lakehouse_admin_secret" {
 # - secret を AIDP が読める IAM ポリシーも Standard ポリシーに含める
 # =============================================================
 
-resource "oci_ai_data_platform_ai_data_platform" "lab" {
+resource "oci_ai_data_platform_ai_data_platform" "aidp" {
   compartment_id            = var.compartment_ocid
   display_name              = var.aidp_display_name
   default_workspace_name    = var.aidp_workspace_name
